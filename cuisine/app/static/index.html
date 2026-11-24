@@ -1,0 +1,465 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Cuisine</title>
+<style>
+  :root {
+    --bg: #f5f4f1; --card: #ffffff; --ink: #1a1814; --ink2: #514c43; --ink3: #857e72;
+    --line: #e6e2da; --accent: #b4532a; --accent-soft: #f8ebe3; --warn: #b45309; --warn-soft: #fdf2e3;
+    --ok: #3f7d3a; --ok-soft: #eaf3e6; --chip: #efece6;
+    --petit_dej: #c2850c; --dejeuner: #3f7d3a; --collation: #7c5cbf; --diner: #b4532a; --batch: #2f6f8f;
+    --radius: 14px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #141310; --card: #1e1c18; --ink: #f1eee8; --ink2: #c4beb2; --ink3: #948d81;
+      --line: #322f29; --accent: #f08a5d; --accent-soft: #3a2419; --warn: #fbbf24; --warn-soft: #3a2c10;
+      --ok: #8fd18a; --ok-soft: #1a2e18; --chip: #2a2722;
+      --petit_dej: #f2c14e; --dejeuner: #8fd18a; --collation: #b8a2ee; --diner: #f08a5d; --batch: #7cc3e3;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 14px 16px 60px; }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 2px 0 12px; }
+  h1 { font-size: 22px; margin: 0; letter-spacing: -.01em; }
+  .tabs { display: flex; gap: 3px; background: var(--chip); padding: 4px; border-radius: 12px; margin-bottom: 14px; }
+  .tabs button { flex: 1; border: 0; background: transparent; color: var(--ink2); font: inherit; font-weight: 600; font-size: 13.5px;
+    padding: 8px 2px; border-radius: 9px; cursor: pointer; min-width: 0; }
+  .tabs button[aria-selected="true"] { background: var(--card); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+  .nav { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+  .nav button { border: 1px solid var(--line); background: var(--card); color: var(--ink); width: 40px; height: 40px;
+    border-radius: 10px; font-size: 20px; cursor: pointer; }
+  .nav .label { text-align: center; } .nav .label b { display: block; font-size: 16px; } .nav .label span { color: var(--ink3); font-size: 13px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; margin-bottom: 12px; }
+  .card h2, .section-title { font-size: 12.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--ink3); margin: 0 0 10px; font-weight: 700; }
+  .section-title { margin: 18px 2px 8px; display: flex; align-items: center; gap: 8px; }
+  .section-title .dot { width: 9px; height: 9px; border-radius: 50%; }
+  .empty { color: var(--ink3); font-size: 14px; margin: 4px 0; }
+  .md { color: var(--ink2); overflow-wrap: anywhere; }
+  .md h1, .md h2, .md h3 { color: var(--ink); font-size: 16px; margin: 14px 0 6px; }
+  .md p { margin: 6px 0; } .md ul, .md ol { padding-left: 20px; margin: 6px 0; } .md li { margin: 3px 0; } .md strong { color: var(--ink); }
+  .md table { border-collapse: collapse; width: 100%; font-size: 13.5px; margin: 8px 0; display: block; overflow-x: auto; }
+  .md th, .md td { border-bottom: 1px solid var(--line); padding: 5px 8px 5px 0; text-align: left; }
+  details.fiche { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); margin-bottom: 12px; }
+  details.fiche summary { list-style: none; cursor: pointer; padding: 12px 16px; font-weight: 700; display: flex; justify-content: space-between; }
+  details.fiche summary::-webkit-details-marker { display: none; }
+  details.fiche summary::after { content: "▾"; color: var(--ink3); } details.fiche[open] summary::after { content: "▴"; }
+  details.fiche .md { padding: 0 16px 14px; border-top: 1px solid var(--line); }
+  .meal { background: var(--card); border: 1px solid var(--line); border-left: 4px solid var(--c, var(--line)); border-radius: 12px;
+    padding: 10px 12px; margin-bottom: 8px; }
+  .meal.fait { opacity: .78; } .meal.ecarte, .meal.saute { opacity: .5; }
+  .meal .top { display: flex; align-items: flex-start; gap: 8px; }
+  .meal .tt { flex: 1; min-width: 0; font-weight: 650; }
+  .meal .tt button { all: unset; cursor: pointer; } .meal .tt button:hover { text-decoration: underline; }
+  .meal .sub { color: var(--ink3); font-size: 12.5px; margin-top: 2px; }
+  .meal .manque { color: var(--warn); font-size: 12.5px; margin-top: 3px; font-weight: 600; }
+  .badge { font-size: 11.5px; font-weight: 700; padding: 2px 8px; border-radius: 999px; white-space: nowrap; background: var(--chip); color: var(--ink2); }
+  .badge.fait { background: var(--ok-soft); color: var(--ok); } .badge.option { background: var(--accent-soft); color: var(--accent); }
+  .actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .btn { border: 1px solid var(--line); background: var(--card); color: var(--ink); font: inherit; font-size: 13px;
+    font-weight: 600; padding: 7px 12px; border-radius: 9px; cursor: pointer; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.ok { background: var(--ok); border-color: var(--ok); color: #fff; }
+  .btn.ghost { border-color: transparent; background: transparent; color: var(--ink3); }
+  .btn.small { padding: 4px 9px; font-size: 12.5px; }
+  .btn:disabled { opacity: .45; cursor: default; }
+  .options-h { color: var(--ink3); font-size: 12.5px; font-weight: 600; margin: 4px 2px 6px; }
+  .bilan { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
+  .bilan .p { background: var(--chip); border-radius: 10px; padding: 8px 10px; }
+  .bilan .p b { display: block; font-size: 14px; } .bilan .p span { color: var(--ink2); font-size: 13px; font-variant-numeric: tabular-nums; }
+  .bar { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; margin-top: 5px; }
+  .bar i { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
+  .row { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-top: 1px solid var(--line); }
+  .row:first-of-type { border-top: 0; }
+  .row .n { flex: 1; min-width: 0; }
+  .row .n b { font-weight: 600; display: block; overflow: hidden; text-overflow: ellipsis; }
+  .row .n small { color: var(--ink3); font-size: 12.5px; display: block; }
+  .row .q { font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
+  .row .warn { color: var(--warn); }
+  .row.done .n b { text-decoration: line-through; color: var(--ink3); }
+  .cl { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .cl b { flex: 1; min-width: 0; }
+  .chk { width: 24px; height: 24px; flex: none; accent-color: var(--accent); }
+  .step { display: flex; align-items: center; gap: 4px; }
+  .step button { width: 30px; height: 30px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--ink); font: inherit; font-size: 16px; cursor: pointer; }
+  .day { margin-bottom: 14px; }
+  .day h3 { font-size: 15px; margin: 0 0 6px 2px; } .day.today h3 { color: var(--accent); }
+  .mini { display: flex; gap: 8px; padding: 6px 10px; border-radius: 10px; background: var(--card); border: 1px solid var(--line); margin-bottom: 5px; align-items: baseline; }
+  .mini .m { width: 74px; flex: none; color: var(--ink3); font-size: 12px; font-weight: 600; }
+  .mini .t { flex: 1; min-width: 0; } .mini .t button { all: unset; cursor: pointer; }
+  .mini.fait .t { color: var(--ink3); } .mini.ecarte, .mini.saute { display: none; }
+  .mini .opt { color: var(--accent); font-size: 12px; }
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .stat { background: var(--chip); border-radius: 10px; padding: 8px 10px; } .stat b { display: block; font-size: 18px; font-variant-numeric: tabular-nums; }
+  .stat span { color: var(--ink3); font-size: 12px; }
+  .alerte { background: var(--warn-soft); color: var(--warn); border-radius: 10px; padding: 8px 12px; font-size: 13.5px; margin-bottom: 10px; }
+  .err { background: var(--warn-soft); color: var(--warn); border-radius: 10px; padding: 10px 12px; font-size: 14px; }
+  .loading { color: var(--ink3); padding: 30px 0; text-align: center; }
+  .field { width: 100%; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); color: var(--ink); font: inherit; padding: 9px 11px; }
+  .inline { display: flex; gap: 6px; } .inline .field { flex: 1; }
+  .bar-actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 4px 0 12px; }
+  dialog { border: 0; border-radius: 18px; padding: 0; width: min(480px, calc(100vw - 20px)); max-height: calc(100vh - 40px); background: var(--card); color: var(--ink); }
+  dialog::backdrop { background: rgba(0,0,0,.45); }
+  .dlg { padding: 16px; } dialog h3 { margin: 0 0 4px; font-size: 17px; } .hint { color: var(--ink3); font-size: 13px; margin: 0 0 12px; }
+  .dlg label.lb { display: block; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--ink3); font-weight: 700; margin: 12px 0 6px; }
+  .foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; position: sticky; bottom: 0; background: var(--card); padding-top: 8px; }
+  .qrow { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-top: 1px solid var(--line); }
+  .qrow .n { flex: 1; min-width: 0; font-size: 14px; } .qrow .n small { display: block; color: var(--ink3); font-size: 12px; }
+  .qrow input { width: 90px; text-align: right; } .qrow .u { width: 52px; color: var(--ink3); font-size: 12.5px; }
+  .ing { list-style: none; padding: 0; margin: 0 0 8px; } .ing li { display: flex; justify-content: space-between; gap: 10px; padding: 5px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
+  .ing li span:last-child { font-variant-numeric: tabular-nums; color: var(--ink2); white-space: nowrap; }
+  .ing li.ko span:first-child::after { content: " · manque"; color: var(--warn); font-size: 12px; font-weight: 600; }
+  .pills { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 10px; } .pill { font-size: 12px; background: var(--chip); color: var(--ink2); padding: 3px 9px; border-radius: 999px; font-weight: 600; }
+  .toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 9px 16px;
+    border-radius: 10px; font-size: 14px; font-weight: 600; z-index: 10; max-width: calc(100vw - 32px); }
+  @media (max-width: 400px) { .tabs button { font-size: 12.5px; } .mini .m { width: 62px; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header><h1>Cuisine</h1></header>
+  <div class="tabs" role="tablist">
+    <button role="tab" data-tab="jour" aria-selected="true">Jour</button>
+    <button role="tab" data-tab="semaine" aria-selected="false">Semaine</button>
+    <button role="tab" data-tab="batch" aria-selected="false">Batch</button>
+    <button role="tab" data-tab="stock" aria-selected="false">Stock</button>
+    <button role="tab" data-tab="courses" aria-selected="false">Courses</button>
+  </div>
+  <main id="view"><div class="loading">Chargement…</div></main>
+</div>
+<dialog id="dlg"><form method="dialog" class="dlg" id="dlgbody"></form></dialog>
+<script>
+const $ = (s, el = document) => el.querySelector(s);
+const view = $("#view"), dlg = $("#dlg"), dlgbody = $("#dlgbody");
+const JOURS = ["dimanche", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi"];
+const MOIS = ["janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc."];
+const MOMENTS = { petit_dej: "Petit-déj", dejeuner: "Déjeuner", collation: "Collation", diner: "Dîner", batch: "Batch" };
+const NOMS = {};
+let state = { tab: "jour", jour: null, semaine: null, stockFiltre: "" };
+
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const dd = iso => new Date(iso + "T12:00:00");
+const jourLong = iso => { const x = dd(iso); return `${JOURS[x.getDay()]} ${x.getDate()} ${MOIS[x.getMonth()]}`; };
+const num = (v, n = 1) => (Math.round(v * 10 ** n) / 10 ** n).toString().replace(".", ",");
+const qte = (q, u) => {
+  if (q == null) return "";
+  if (u === "g" && q >= 1000) return `${num(q / 1000, 2)} kg`;
+  if (u === "ml" && q >= 1000) return `${num(q / 1000, 2)} L`;
+  return `${num(q)} ${u === "portion" ? (q > 1 ? "portions" : "portion") : u}`;
+};
+const euros = v => v == null ? "" : v.toFixed(2).replace(".", ",") + " €";
+const UNIT_STEP = { g: 50, ml: 50, pc: 1, portion: 1 };
+
+async function api(path) {
+  const r = await fetch(path, { headers: { Accept: "application/json" } });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.erreur || `HTTP ${r.status}`);
+  return j;
+}
+async function post(path, body) {
+  const r = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify(body || {}) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.erreur || `HTTP ${r.status}`);
+  return j;
+}
+function toast(msg) { const t = document.createElement("div"); t.className = "toast"; t.textContent = msg; document.body.appendChild(t); setTimeout(() => t.remove(), 2800); }
+async function act(fn, ok) { try { await fn(); if (ok) toast(ok); await render(false); } catch (e) { toast(e.message); } }
+
+function setTab(tab) {
+  state.tab = tab;
+  document.querySelectorAll(".tabs button").forEach(b => b.setAttribute("aria-selected", b.dataset.tab === tab));
+  render();
+}
+document.querySelectorAll(".tabs button").forEach(b => b.addEventListener("click", () => setTab(b.dataset.tab)));
+
+async function render(spinner = true) {
+  if (spinner) view.innerHTML = `<div class="loading">Chargement…</div>`;
+  try { await ({ jour: renderJour, semaine: renderSemaine, batch: renderBatch, stock: renderStock, courses: renderCourses })[state.tab](); }
+  catch (e) { view.innerHTML = `<div class="err">Impossible de charger : ${esc(e.message)}</div>`; }
+}
+
+function openDlg(html, onReady) {
+  dlgbody.innerHTML = html; dlg.showModal();
+  dlgbody.querySelectorAll("[data-close]").forEach(b => b.addEventListener("click", e => { e.preventDefault(); dlg.close(); }));
+  if (onReady) onReady(dlgbody);
+}
+
+// ---------------------------------------------------------------- recette
+function portionsTotal(r) { const p = r.portions || {}; return p.total ?? Object.values(p).reduce((a, b) => a + b, 0); }
+function personnesTxt(r) {
+  const p = r.portions || {};
+  if (p.total != null) return `${num(p.total, 0)} portions`;
+  return Object.entries(p).map(([k, v]) => `${NOMS[k] || k}${v !== 1 ? " ×" + num(v, 2) : ""}`).join(" · ");
+}
+async function showRecette(rid, total, titre) {
+  try {
+    const r = await api(`api/recette/${encodeURIComponent(rid)}`);
+    const mult = total || 1;
+    const n = r.nutrition_portion || {};
+    const ing = r.ingredients_details.map(i => `<li><span>${esc(i.nom)}${i.note ? ` <small>(${esc(i.note)})</small>` : ""}</span><span>${esc(qte(i.quantite * mult, i.unite))}</span></li>`).join("");
+    openDlg(`<h3>${esc(titre || r.titre)}</h3>
+      <p class="hint">${r.temps_min ? `${r.temps_min} min · ` : ""}${mult !== 1 ? `quantités pour ${num(mult, 2)} portions` : "pour 1 portion"}</p>
+      <div class="pills">${n.kcal ? `<span class="pill">${n.kcal} kcal</span><span class="pill">P ${n.prot} g</span><span class="pill">G ${n.gluc} g</span><span class="pill">L ${n.lip} g</span>` : ""}${n.kcal ? `<span class="pill">par portion</span>` : ""}</div>
+      <ul class="ing">${ing}</ul><div class="md">${r.html}</div>${r.notes ? `<div class="md">${r.notes_html}</div>` : ""}
+      <div class="foot"><button class="btn" data-close>Fermer</button></div>`);
+  } catch (e) { toast(e.message); }
+}
+
+// ---------------------------------------------------------------- validation d'un repas
+async function valider(id, titre) {
+  let v;
+  try { v = await api(`api/repas/${id}/validation`); } catch (e) { return toast(e.message); }
+  const rows = v.lignes.map((l, i) => `<div class="qrow"><div class="n">${esc(l.nom)}<small>${l.sens === "produit" ? "produit → ajouté au stock" : `en stock : ${esc(qte(l.stock, l.unite))}`}</small></div>
+    <input class="field" type="number" inputmode="decimal" min="0" step="any" data-i="${i}" value="${Math.round(l.quantite * 10) / 10}"><span class="u">${esc(l.unite)}</span></div>`).join("");
+  openDlg(`<h3>${esc(titre)}</h3>
+    <p class="hint">${v.lignes.length ? "Quantités retirées du stock. Corrige si tu as utilisé plus ou moins." : "Ce repas n'a pas d'effet sur le stock."}</p>
+    ${rows}
+    <label class="lb">Note (facultatif)</label><input class="field" id="vnote" maxlength="300" placeholder="ex. plus de riz, trop salé…">
+    <div class="foot"><button class="btn" data-close>Annuler</button><button class="btn ok" id="vok">C'est fait ✓</button></div>`, b => {
+    $("#vok", b).addEventListener("click", async e => {
+      e.preventDefault();
+      const lignes = v.lignes.map((l, i) => ({ produit: l.produit, sens: l.sens, quantite: parseFloat(($(`[data-i="${i}"]`, b).value || "0").replace(",", ".")) || 0 }));
+      dlg.close();
+      await act(() => post(`api/repas/${id}/valider`, { statut: "fait", lignes, note: $("#vnote", b).value || null }), "Stock mis à jour");
+    });
+  });
+}
+
+function mealHTML(r, opts = {}) {
+  const rid = r.recette_ref;
+  const tt = rid ? `<button data-rec="${esc(rid)}" data-tot="${portionsTotal(r)}" data-titre="${esc(r.titre)}">${esc(r.titre)}</button>` : esc(r.titre);
+  const badge = r.statut === "fait" ? `<span class="badge fait">✓ Fait</span>` : (r.statut === "saute" ? `<span class="badge">Sauté</span>` :
+    (r.statut === "ecarte" ? `<span class="badge">Pas choisi</span>` : (r.role === "option" ? `<span class="badge option">Option</span>` : "")));
+  const sub = [r.moment === "batch" ? personnesTxt(r) : personnesTxt(r), r.temps_min ? `${r.temps_min} min` : "", r.note || ""].filter(Boolean).join(" · ");
+  const manque = r.dispo && !r.dispo.ok && r.dispo.manque.length ? `<div class="manque">Manque : ${esc(r.dispo.manque.join(", "))}</div>` : "";
+  let actions = "";
+  if (r.statut === "prevu") {
+    actions = `<button class="btn ok small" data-fait="${r.id}" data-titre="${esc(r.titre)}">${r.moment === "batch" ? "Batch fait ✓" : (r.role === "option" ? "Je prends ça ✓" : "Fait ✓")}</button>
+      ${opts.sauter !== false ? `<button class="btn small" data-saute="${r.id}">Pas fait</button>` : ""}`;
+  } else if (r.statut === "fait" || r.statut === "saute") {
+    actions = `<button class="btn ghost small" data-annule="${r.id}">Annuler</button>`;
+  }
+  return `<div class="meal ${r.statut}" style="--c:var(--${r.moment})"><div class="top"><div class="tt">${tt}</div>${badge}</div>
+    ${sub ? `<div class="sub">${esc(sub)}</div>` : ""}${manque}${actions ? `<div class="actions">${actions}</div>` : ""}</div>`;
+}
+
+function bindMeals(root) {
+  root.querySelectorAll("[data-rec]").forEach(b => b.addEventListener("click", () => showRecette(b.dataset.rec, parseFloat(b.dataset.tot) || 1, b.dataset.titre)));
+  root.querySelectorAll("[data-fait]").forEach(b => b.addEventListener("click", () => valider(b.dataset.fait, b.dataset.titre)));
+  root.querySelectorAll("[data-saute]").forEach(b => b.addEventListener("click", () => act(() => post(`api/repas/${b.dataset.saute}/valider`, { statut: "saute" }), "Noté")));
+  root.querySelectorAll("[data-annule]").forEach(b => b.addEventListener("click", () => act(() => post(`api/repas/${b.dataset.annule}/annuler`), "Validation annulée, stock rétabli")));
+}
+
+// ---------------------------------------------------------------- Aujourd'hui
+async function renderJour() {
+  const j = await api(`api/jour${state.jour ? "?d=" + state.jour : ""}`);
+  j.profils.forEach(p => NOMS[p.id] = p.nom);
+  state.jour = j.date;
+  const label = j.date === j.aujourd_hui ? "Aujourd'hui" : jourLong(j.date).replace(/^./, c => c.toUpperCase());
+  let h = `<div class="nav"><button id="prev" aria-label="Jour précédent">‹</button><div class="label"><b>${esc(label)}</b><span>${esc(jourLong(j.date))}</span></div><button id="next" aria-label="Jour suivant">›</button></div>`;
+  if (j.fiche) h += `<details class="fiche"><summary>${esc(j.fiche.titre)}</summary><div class="md">${j.fiche.html}</div></details>`;
+  const par = {};
+  j.repas.filter(r => r.moment !== "batch").forEach(r => (par[r.moment] ||= []).push(r));
+  const batch = j.repas.filter(r => r.moment === "batch");
+  if (!j.repas.length) h += `<div class="card"><p class="empty">Rien de prévu ce jour-là. Le plan est publié par Claude (point du samedi) ; en attendant, regarde ce qui est faisable avec le stock plus bas.</p></div>`;
+  for (const m of ["petit_dej", "dejeuner", "collation", "diner"]) {
+    const rs = par[m]; if (!rs) continue;
+    h += `<div class="section-title"><i class="dot" style="background:var(--${m})"></i>${MOMENTS[m]}</div>`;
+    const princ = rs.filter(r => r.role !== "option"), opts = rs.filter(r => r.role === "option");
+    h += princ.map(r => mealHTML(r)).join("");
+    if (opts.length) h += `<div class="options-h">${princ.length ? "Ou au choix :" : "Au choix :"}</div>` + opts.map(r => mealHTML(r, { sauter: false })).join("");
+  }
+  if (batch.length) h += `<div class="section-title"><i class="dot" style="background:var(--batch)"></i>Batch cooking</div>` + batch.map(r => mealHTML(r)).join("");
+  if (j.faisables.length) {
+    h += `<div class="section-title">Faisable avec le stock</div><div class="card">` + j.faisables.map(f =>
+      `<div class="row"><div class="n"><b><button class="btn ghost small" style="padding:0;color:var(--ink);font-size:14.5px" data-rec="${esc(f.id)}" data-tot="1" data-titre="${esc(f.titre)}">${esc(f.titre)}</button></b>
+      <small>${f.temps_min ? f.temps_min + " min" : ""}${f.manque.length ? ` · manque ${esc(f.manque.join(", "))}` : " · tout est en stock"}</small></div></div>`).join("") + `</div>`;
+  }
+  h += `<div class="bar-actions"><button class="btn" id="horsplan">+ Repas hors plan</button></div>`;
+  h += `<div class="card"><h2>Apports prévus</h2><div class="bilan">` + j.bilan.map(p => {
+    const c = p.cibles?.kcal; const pc = c ? Math.min(100, Math.round(p.kcal / c * 100)) : null;
+    return `<div class="p"><b>${esc(p.nom)}</b><span>${p.kcal} kcal${c ? ` / ${c}` : ""}</span><br><span>Prot. ${p.prot} g · Gluc. ${p.gluc} g · Lip. ${p.lip} g</span>${pc != null ? `<div class="bar"><i style="width:${pc}%"></i></div>` : ""}</div>`;
+  }).join("") + `</div><p class="empty" style="font-size:12.5px;margin-top:8px">Estimation à partir des repas faits ou prévus (hors options non choisies) et des valeurs nutritionnelles du catalogue.</p></div>`;
+  view.innerHTML = h;
+  $("#prev").onclick = () => { state.jour = j.precedent; render(); };
+  $("#next").onclick = () => { state.jour = j.suivant; render(); };
+  $("#horsplan").onclick = () => horsPlan(j.date);
+  bindMeals(view);
+}
+
+function horsPlan(dateIso) {
+  openDlg(`<h3>Repas hors plan</h3><p class="hint">Restes, resto, invitation… Ce sera signalé à Claude pour ajuster la suite.</p>
+    <label class="lb">Moment</label><select class="field" id="hm">${["petit_dej", "dejeuner", "collation", "diner"].map(m => `<option value="${m}">${MOMENTS[m]}</option>`).join("")}</select>
+    <label class="lb">Qu'avez-vous mangé ?</label><input class="field" id="hl" maxlength="120" placeholder="ex. restes de pâtes, resto japonais">
+    <div class="foot"><button class="btn" data-close>Annuler</button><button class="btn primary" id="hok">Enregistrer</button></div>`, b => {
+    $("#hok", b).addEventListener("click", async e => {
+      e.preventDefault(); const lib = $("#hl", b).value.trim(); if (!lib) return;
+      dlg.close(); await act(() => post("api/hors_plan", { date: dateIso, moment: $("#hm", b).value, libelle: lib }), "Enregistré");
+    });
+  });
+}
+
+// ---------------------------------------------------------------- Semaine
+async function renderSemaine() {
+  const w = await api(`api/semaine${state.semaine ? "?d=" + state.semaine : ""}`);
+  state.semaine = w.debut;
+  const s = dd(w.debut), e = dd(w.fin);
+  let h = `<div class="nav"><button id="prev">‹</button><div class="label"><b>${w.debut <= w.aujourd_hui && w.aujourd_hui <= w.fin ? "Cette semaine" : (w.debut > w.aujourd_hui ? "Semaine à venir" : "Semaine passée")}</b>
+    <span>${s.getDate()} ${MOIS[s.getMonth()]} – ${e.getDate()} ${MOIS[e.getMonth()]}</span></div><button id="next">›</button></div>`;
+  const par = {}; w.repas.forEach(r => (par[r.date] ||= []).push(r));
+  for (let i = 0; i < 7; i++) {
+    const x = new Date(s); x.setDate(s.getDate() + i);
+    const iso = `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, "0")}-${String(x.getDate()).padStart(2, "0")}`;
+    const rs = par[iso] || [];
+    h += `<div class="day${iso === w.aujourd_hui ? " today" : ""}"><h3>${esc(jourLong(iso).replace(/^./, c => c.toUpperCase()))}</h3>`;
+    if (!rs.length) h += `<p class="empty" style="margin-left:2px">Rien de prévu</p>`;
+    h += rs.map(r => `<div class="mini ${r.statut}"><span class="m" style="color:var(--${r.moment})">${MOMENTS[r.moment]}</span>
+      <span class="t">${r.recette_ref ? `<button data-rec="${esc(r.recette_ref)}" data-tot="${portionsTotal(r)}" data-titre="${esc(r.titre)}">${esc(r.titre)}</button>` : esc(r.titre)}
+      ${r.role === "option" ? `<span class="opt"> · option</span>` : ""}${r.statut === "fait" ? " ✓" : ""}</span></div>`).join("");
+    h += `</div>`;
+  }
+  view.innerHTML = h;
+  $("#prev").onclick = () => { state.semaine = w.precedente; render(); };
+  $("#next").onclick = () => { state.semaine = w.suivante; render(); };
+  bindMeals(view);
+}
+
+// ---------------------------------------------------------------- Batch
+async function renderBatch() {
+  const b = await api("api/batch");
+  let h = `<div class="card"><h2>Batch du ${esc(jourLong(b.date))}</h2>`;
+  if (!b.batch.length) h += `<p class="empty">Pas encore de batch prévu. Claude le prépare lors du point du samedi.</p>`;
+  h += `</div>`;
+  h += b.batch.map(r => mealHTML(r)).join("");
+  if (b.fiche) h += `<details class="fiche" open><summary>${esc(b.fiche.titre)}</summary><div class="md">${b.fiche.html}</div></details>`;
+  if (b.plats.length) h += `<div class="card"><h2>Plats préparés au frigo</h2>` + b.plats.map(p => `<div class="row"><div class="n"><b>${esc(p.nom)}</b></div><span class="q">${esc(p.affichage)}</span></div>`).join("") + `</div>`;
+  if (b.dejeuners.length) h += `<div class="card"><h2>Déjeuners de la semaine</h2>` + b.dejeuners.map(r => `<div class="row"><div class="n"><b>${esc(r.titre)}</b><small>${esc(jourLong(r.date))} · ${esc(personnesTxt(r))}</small></div>${r.statut === "fait" ? `<span class="badge fait">✓</span>` : ""}</div>`).join("") + `</div>`;
+  view.innerHTML = h;
+  bindMeals(view);
+}
+
+// ---------------------------------------------------------------- Stock
+async function renderStock() {
+  const s = await api("api/stock");
+  const f = state.stockFiltre.toLowerCase();
+  const items = s.stock.filter(p => !f || p.nom.toLowerCase().includes(f));
+  let h = `<div class="inline" style="margin-bottom:12px"><input class="field" id="filtre" placeholder="Rechercher…" value="${esc(state.stockFiltre)}"><button class="btn primary" id="ajout">+ Ajouter</button></div>`;
+  const sous = s.stock.filter(p => p.sous_min);
+  if (sous.length) h += `<div class="alerte">Basiques sous le minimum : ${esc(sous.map(p => p.nom).join(", "))} (ajoutés à la liste)</div>`;
+  const par = {}; items.forEach(p => (par[p.rayon] ||= []).push(p));
+  const ordre = s.rayons.filter(r => par[r]).concat(Object.keys(par).filter(r => !s.rayons.includes(r)));
+  if (!items.length) h += `<div class="card"><p class="empty">${f ? "Aucun produit trouvé." : "Stock vide. Ajoute tes produits ou range tes courses depuis l'onglet Courses."}</p></div>`;
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  for (const r of ordre) {
+    h += `<div class="section-title">${esc(r)}</div><div class="card">` + par[r].map(p => {
+      const dlc = p.dlc ? dd(p.dlc) : null; const proche = dlc && (dlc - today) / 864e5 <= 2;
+      return `<div class="row"><div class="n"><b>${esc(p.nom)}</b><small>${p.dlc ? `<span class="${proche ? "warn" : ""}">DLC ${esc(dd(p.dlc).toLocaleDateString("fr-FR"))}</span>` : (p.conservation ? esc(p.conservation) : "")}</small></div>
+        <div class="step"><button data-moins="${esc(p.id)}" data-u="${p.unite}" data-c="${p.conditionnement || ""}">−</button>
+        <button class="q" style="width:auto;padding:0 8px;font-size:13.5px" data-edit="${esc(p.id)}">${esc(p.affichage)}</button>
+        <button data-plus="${esc(p.id)}" data-u="${p.unite}" data-c="${p.conditionnement || ""}">+</button></div></div>`;
+    }).join("") + `</div>`;
+  }
+  view.innerHTML = h;
+  const fi = $("#filtre");
+  fi.addEventListener("input", () => { state.stockFiltre = fi.value; clearTimeout(fi._t); fi._t = setTimeout(async () => { await render(false); const n = $("#filtre"); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }, 250); });
+  const pas = b => b.dataset.u === "portion" || b.dataset.u === "pc" ? 1 : (UNIT_STEP[b.dataset.u] || 1);
+  view.querySelectorAll("[data-moins]").forEach(b => b.onclick = () => act(() => post(`api/stock/${b.dataset.moins}`, { delta: -pas(b) })));
+  view.querySelectorAll("[data-plus]").forEach(b => b.onclick = () => act(() => post(`api/stock/${b.dataset.plus}`, { delta: pas(b) })));
+  view.querySelectorAll("[data-edit]").forEach(b => b.onclick = () => editStock(s.stock.find(p => p.id === b.dataset.edit)));
+  $("#ajout").onclick = () => ajoutStock(s);
+}
+
+function editStock(p) {
+  openDlg(`<h3>${esc(p.nom)}</h3><p class="hint">Quantité réelle restante, en ${esc(p.unite)}${p.conditionnement ? ` (paquet Lidl : ${esc(qte(p.conditionnement, p.unite))})` : ""}.</p>
+    <label class="lb">Quantité</label><input class="field" id="eq" type="number" inputmode="decimal" min="0" step="any" value="${p.quantite}">
+    <label class="lb">Date limite (facultatif)</label><input class="field" id="ed" type="date" value="${esc(p.dlc || "")}">
+    <div class="foot"><button class="btn" id="ezero">Plus rien</button><button class="btn" data-close>Annuler</button><button class="btn primary" id="eok">Enregistrer</button></div>`, b => {
+    $("#eok", b).onclick = async e => { e.preventDefault(); dlg.close(); await act(() => post(`api/stock/${p.id}`, { quantite: parseFloat($("#eq", b).value.replace(",", ".")) || 0, dlc: $("#ed", b).value || null }), "Stock corrigé"); };
+    $("#ezero", b).onclick = async e => { e.preventDefault(); dlg.close(); await act(() => post(`api/stock/${p.id}`, { quantite: 0 }), "Produit épuisé"); };
+  });
+}
+
+function ajoutStock(s) {
+  const opts = s.catalogue.map(p => `<option value="${esc(p.id)}">${esc(p.nom)} (${esc(p.unite)})</option>`).join("");
+  openDlg(`<h3>Ajouter au stock</h3>
+    <label class="lb">Produit</label><select class="field" id="ap"><option value="">— choisir —</option>${opts}<option value="__new">+ Nouveau produit…</option></select>
+    <div id="newp" hidden><label class="lb">Nom</label><input class="field" id="an" maxlength="80">
+      <div class="inline" style="margin-top:8px"><select class="field" id="au">${s.unites.filter(u => u !== "portion").map(u => `<option>${u}</option>`).join("")}</select>
+      <input class="field" id="ac" type="number" inputmode="decimal" placeholder="Paquet (ex. 500)"></div>
+      <label class="lb">Rayon</label><select class="field" id="ar">${s.rayons.map(r => `<option>${esc(r)}</option>`).join("")}</select></div>
+    <label class="lb">Quantité ajoutée</label><input class="field" id="aq" type="number" inputmode="decimal" min="0" step="any">
+    <div class="foot"><button class="btn" data-close>Annuler</button><button class="btn primary" id="aok">Ajouter</button></div>`, b => {
+    $("#ap", b).onchange = () => { $("#newp", b).hidden = $("#ap", b).value !== "__new"; const p = s.catalogue.find(x => x.id === $("#ap", b).value); if (p?.conditionnement) $("#aq", b).value = p.conditionnement; };
+    $("#aok", b).onclick = async e => {
+      e.preventDefault();
+      let pid = $("#ap", b).value; const q = parseFloat(($("#aq", b).value || "").replace(",", "."));
+      if (!pid || !(q > 0)) return toast("Choisis un produit et une quantité");
+      dlg.close();
+      await act(async () => {
+        if (pid === "__new") pid = (await post("api/produit", { nom: $("#an", b).value, unite: $("#au", b).value, rayon: $("#ar", b).value, conditionnement: $("#ac", b).value })).id;
+        await post(`api/stock/${pid}`, { delta: q, motif: "ajout manuel" });
+      }, "Ajouté au stock");
+    };
+  });
+}
+
+// ---------------------------------------------------------------- Courses
+async function renderCourses() {
+  const c = await api("api/courses");
+  const fait = c.lignes.filter(l => l.coche).length + c.libres.filter(l => l.coche).length;
+  const total = c.lignes.length + c.libres.length;
+  let h = `<div class="card"><h2>Courses du ${esc(jourLong(c.date_courses))}</h2><div class="stats">
+    <div class="stat"><b>${total}</b><span>articles</span></div><div class="stat"><b>${euros(c.total_estime) || "–"}</b><span>estimé${c.sans_prix.length ? ` (+${c.sans_prix.length} sans prix)` : ""}</span></div>
+    <div class="stat"><b>${c.repas_prevus}</b><span>repas couverts</span></div></div>
+    <p class="empty" style="font-size:12.5px;margin-top:8px">Pour les repas prévus jusqu'au ${esc(jourLong(c.horizon_fin))}, moins ce qui restera en stock. Se met à jour à chaque repas validé.</p></div>`;
+  c.alertes.forEach(a => h += `<div class="alerte">${esc(a)}</div>`);
+  const par = {}; c.lignes.forEach(l => (par[l.rayon] ||= []).push(l));
+  for (const [r, ls] of Object.entries(par)) {
+    h += `<div class="section-title">${esc(r)}</div><div class="card">` + ls.map(l => `<div class="row${l.coche ? " done" : ""}">
+      <input type="checkbox" class="chk" data-chk="${esc(l.produit)}"${l.coche ? " checked" : ""}>
+      <div class="n"><div class="cl"><b>${esc(l.nom)}</b>
+      ${l.paquets != null ? `<div class="step"><button data-pq="${esc(l.produit)}" data-v="${l.paquets - 1}" aria-label="Moins">−</button><span class="q">${esc(l.achat)}</span><button data-pq="${esc(l.produit)}" data-v="${l.paquets + 1}" aria-label="Plus">+</button></div>` : `<span class="q">${esc(l.achat)}</span>`}</div>
+      <small>besoin ${esc(l.besoin_affichage)}${l.prix != null ? " · " + euros(l.prix) : ""}${l.pour.length ? " · " + esc(l.pour.slice(0, 2).join(", ")) + (l.pour.length > 2 ? "…" : "") : ""}</small></div>
+      <button class="btn ghost small" data-ret="${esc(l.produit)}" title="Retirer de la liste" aria-label="Retirer">✕</button></div>`).join("") + `</div>`;
+  }
+  h += `<div class="section-title">Autres articles</div><div class="card">` + (c.libres.map(l => `<div class="row${l.coche ? " done" : ""}">
+      <input type="checkbox" class="chk" data-lchk="${l.id}"${l.coche ? " checked" : ""}><div class="n"><b>${esc(l.texte)}</b></div>
+      <button class="btn ghost small" data-lsup="${l.id}">✕</button></div>`).join("") || "") +
+    `<div class="inline" style="margin-top:8px"><input class="field" id="libre" maxlength="200" placeholder="Ajouter un article (éponges, café…)"><button class="btn" id="addl">Ajouter</button></div></div>`;
+  if (!total) h += `<p class="empty">Rien à acheter pour l'instant : la liste se remplit dès que le plan de la semaine suivante est publié.</p>`;
+  h += `<div class="bar-actions">${c.ha_configure ? `<button class="btn" id="envoi">Envoyer vers la liste HA</button>` : ""}
+    <button class="btn primary" id="ranger"${fait ? "" : " disabled"}>Courses rangées → stock (${fait})</button></div>`;
+  view.innerHTML = h;
+  view.querySelectorAll("[data-chk]").forEach(b => b.onchange = () => act(() => post("api/courses/cocher", { produit: b.dataset.chk, coche: b.checked })));
+  view.querySelectorAll("[data-lchk]").forEach(b => b.onchange = () => act(() => post("api/courses/cocher", { libre_id: +b.dataset.lchk, coche: b.checked })));
+  view.querySelectorAll("[data-pq]").forEach(b => b.onclick = () => act(() => post("api/courses/modifier", { produit: b.dataset.pq, paquets: Math.max(0, +b.dataset.v) })));
+  view.querySelectorAll("[data-ret]").forEach(b => b.onclick = () => act(() => post("api/courses/modifier", { produit: b.dataset.ret, retire: true }), "Retiré jusqu'aux prochaines courses"));
+  view.querySelectorAll("[data-lsup]").forEach(b => b.onclick = () => act(() => post(`api/courses/libre/${b.dataset.lsup}/supprimer`)));
+  const add = () => { const v = $("#libre").value.trim(); if (v) act(() => post("api/courses/libre", { texte: v })); };
+  $("#addl").onclick = add; $("#libre").onkeydown = e => { if (e.key === "Enter") add(); };
+  if ($("#envoi")) $("#envoi").onclick = () => act(async () => { const r = await post("api/courses/envoyer_ha"); toast(`${r.envoyes} article(s) envoyé(s)`); });
+  $("#ranger").onclick = ranger;
+}
+
+async function ranger() {
+  let r; try { r = await api("api/courses/rangement"); } catch (e) { return toast(e.message); }
+  const rows = r.lignes.map((l, i) => `<div class="qrow"><div class="n">${esc(l.nom)}</div><input class="field" type="number" inputmode="decimal" min="0" step="any" data-i="${i}" value="${l.quantite ?? ""}"><span class="u">${esc(l.unite)}</span></div>`).join("");
+  openDlg(`<h3>Ranger les courses</h3><p class="hint">Les articles cochés entrent dans le stock. Corrige les quantités pesées (fruits, viande au poids) ou les formats différents.</p>${rows}
+    <p class="hint" style="margin-top:10px">Les articles libres cochés sont retirés de la liste.</p>
+    <div class="foot"><button class="btn" data-close>Annuler</button><button class="btn primary" id="rok">Ranger</button></div>`, b => {
+    $("#rok", b).onclick = async e => {
+      e.preventDefault();
+      const lignes = r.lignes.map((l, i) => ({ produit: l.produit, quantite: parseFloat(($(`[data-i="${i}"]`, b).value || "0").replace(",", ".")) || 0 })).filter(l => l.quantite > 0);
+      dlg.close(); await act(() => post("api/courses/ranger", { lignes }), "Courses rangées");
+    };
+  });
+}
+
+render();
+</script>
+</body>
+</html>
