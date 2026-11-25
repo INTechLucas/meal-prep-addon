@@ -21,6 +21,7 @@ from .store import MOMENTS_LIB, RAYONS, UNITES, CuisineError, Store, iso_week
 
 LOG = logging.getLogger("cuisine.panel")
 STATIC = Path(__file__).parent / "static"
+CONSERVATIONS = ("Frigo", "Placard", "Congélateur", "Panier")
 ALLOWED = [ipaddress.ip_network(n) for n in os.environ.get("PANEL_ALLOWED", "172.30.32.2/32").split(",")]
 
 
@@ -105,7 +106,8 @@ def build_panel(store: Store, options: dict[str, Any]) -> Starlette:
     def api_stock(request: Request, _b) -> dict[str, Any]:
         return {"stock": store.stock(), "catalogue": [{k: p[k] for k in ("id", "nom", "unite", "conditionnement",
                                                                           "rayon", "stock")} for p in store.produits()],
-                "rayons": list(RAYONS), "unites": list(UNITES)}
+                "rayons": [r for r in RAYONS if r != "Préparé maison"], "unites": list(UNITES),
+                "conservations": list(CONSERVATIONS)}
 
     def api_stock_maj(request: Request, b) -> dict[str, Any]:
         q, dl = b.get("quantite"), b.get("delta")
@@ -113,10 +115,43 @@ def build_panel(store: Store, options: dict[str, Any]) -> Starlette:
                                    delta=float(dl) if dl not in (None, "") else None, dlc=b.get("dlc") or None,
                                    motif=str(b.get("motif") or "ajustement panneau")[:80])
 
+    def _num(b: dict[str, Any], k: str) -> float | None:
+        v = b.get(k)
+        if v in (None, ""):
+            return None
+        v = float(str(v).replace(",", "."))
+        if v < 0:
+            raise CuisineError(f"{k} ne peut pas être négatif")
+        return v
+
     def api_produit(request: Request, b) -> dict[str, Any]:
-        return store.upsert_produit(nom=str(b.get("nom") or "").strip(), unite=b.get("unite"),
-                                    rayon=b.get("rayon") or "Autre",
-                                    conditionnement=float(b["conditionnement"]) if b.get("conditionnement") else None)
+        """Crée (sans id) ou modifie (avec id) une fiche produit depuis le panneau."""
+        pid = request.path_params.get("pid")
+        nom = str(b.get("nom") or "").strip()[:80] or None
+        if not pid and not nom:
+            raise CuisineError("nom obligatoire")
+        if not pid and not b.get("rayon"):
+            raise CuisineError("choisis un rayon")
+        cons = b.get("conservation") or None
+        if cons and cons not in CONSERVATIONS:
+            raise CuisineError("conservation invalide")
+        champs = {k: _num(b, k) for k in ("conditionnement", "prix", "prix_kg", "kcal", "prot", "gluc", "lip",
+                                           "fibres", "poids_piece", "stock_min")}
+        res = store.upsert_produit(
+            id=pid, nom=nom, unite=b.get("unite") or None, rayon=b.get("rayon") or None, conservation=cons,
+            au_poids=bool(b.get("au_poids")) if "au_poids" in b else None,
+            basique=bool(b.get("basique")) if "basique" in b else None,
+            libelle_ticket=(str(b.get("libelle_ticket")).strip()[:80] or None) if b.get("libelle_ticket") else None,
+            notes=(str(b.get("notes")).strip()[:300] or None) if b.get("notes") else None,
+            **{k: v for k, v in champs.items() if v is not None})
+        store.evenement("produit_modifie" if pid else "produit_cree", {"produit": res["id"], "nom": nom})
+        return res
+
+    def api_produit_get(request: Request, _b) -> dict[str, Any]:
+        p = store.produit(request.path_params["pid"])
+        if not p:
+            raise CuisineError("produit introuvable")
+        return p
 
     def api_validation(request: Request, _b) -> dict[str, Any]:
         return store.preparer_validation(int(request.path_params["pid"]))
@@ -179,6 +214,8 @@ def build_panel(store: Store, options: dict[str, Any]) -> Starlette:
         Route("/api/stock", route(api_stock)),
         Route("/api/stock/{pid}", route(api_stock_maj), methods=["POST"]),
         Route("/api/produit", route(api_produit), methods=["POST"]),
+        Route("/api/produit/{pid}", route(api_produit_get)),
+        Route("/api/produit/{pid}", route(api_produit), methods=["POST"]),
         Route("/api/repas/{pid:int}/validation", route(api_validation)),
         Route("/api/repas/{pid:int}/valider", route(api_valider), methods=["POST"]),
         Route("/api/repas/{pid:int}/annuler", route(api_annuler), methods=["POST"]),

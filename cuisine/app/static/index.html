@@ -345,6 +345,7 @@ async function renderBatch() {
 // ---------------------------------------------------------------- Stock
 async function renderStock() {
   const s = await api("api/stock");
+  state.stockMeta = s;
   const f = state.stockFiltre.toLowerCase();
   const items = s.stock.filter(p => !f || p.nom.toLowerCase().includes(f));
   let h = `<div class="inline" style="margin-bottom:12px"><input class="field" id="filtre" placeholder="Rechercher…" value="${esc(state.stockFiltre)}"><button class="btn primary" id="ajout">+ Ajouter</button></div>`;
@@ -377,32 +378,79 @@ function editStock(p) {
   openDlg(`<h3>${esc(p.nom)}</h3><p class="hint">Quantité réelle restante, en ${esc(p.unite)}${p.conditionnement ? ` (paquet Lidl : ${esc(qte(p.conditionnement, p.unite))})` : ""}.</p>
     <label class="lb">Quantité</label><input class="field" id="eq" type="number" inputmode="decimal" min="0" step="any" value="${p.quantite}">
     <label class="lb">Date limite (facultatif)</label><input class="field" id="ed" type="date" value="${esc(p.dlc || "")}">
-    <div class="foot"><button class="btn" id="ezero">Plus rien</button><button class="btn" data-close>Annuler</button><button class="btn primary" id="eok">Enregistrer</button></div>`, b => {
+    <div class="foot"><button class="btn ghost" id="efiche">Fiche produit</button><button class="btn" id="ezero">Plus rien</button><button class="btn primary" id="eok">Enregistrer</button></div>`, b => {
     $("#eok", b).onclick = async e => { e.preventDefault(); dlg.close(); await act(() => post(`api/stock/${p.id}`, { quantite: parseFloat($("#eq", b).value.replace(",", ".")) || 0, dlc: $("#ed", b).value || null }), "Stock corrigé"); };
     $("#ezero", b).onclick = async e => { e.preventDefault(); dlg.close(); await act(() => post(`api/stock/${p.id}`, { quantite: 0 }), "Produit épuisé"); };
+    $("#efiche", b).onclick = async e => { e.preventDefault(); try { ficheProduit(await api(`api/produit/${encodeURIComponent(p.id)}`)); } catch (err) { toast(err.message); } };
+  });
+}
+
+// Fiche produit : création (p = null) ou modification. Tous les champs utiles au plan et à la liste.
+function ficheProduit(p) {
+  const m = state.stockMeta;
+  const v = k => (p && p[k] != null ? p[k] : "");
+  const sel = (id, list, cur, vide) => `<select class="field" id="${id}">${vide ? `<option value="">${vide}</option>` : ""}${list.map(x => `<option${x === cur ? " selected" : ""}>${esc(x)}</option>`).join("")}</select>`;
+  const n = (id, ph, val) => `<input class="field" id="${id}" type="number" inputmode="decimal" min="0" step="any" placeholder="${ph}" value="${val}">`;
+  const unite = p ? p.unite : "g";
+  openDlg(`<h3>${p ? esc(p.nom) : "Nouveau produit"}</h3>
+    <p class="hint">${p ? "Les champs vides restent inchangés." : "Nom, unité et rayon sont obligatoires ; le reste améliore le plan et la liste."}</p>
+    <label class="lb">Nom</label><input class="field" id="fn" maxlength="80" value="${esc(v("nom"))}">
+    <div class="inline" style="margin-top:8px">
+      <div style="flex:1"><label class="lb">Unité</label>${sel("fu", m.unites.filter(u => u !== "portion" || unite === "portion"), unite)}</div>
+      <div style="flex:1"><label class="lb">Paquet Lidl</label>${n("fc", "ex. 500", v("conditionnement"))}</div>
+    </div>
+    <label class="lb">Rayon</label>${sel("fr", m.rayons, p?.rayon, p ? "" : "— choisir —")}
+    <label class="lb">Conservation</label>${sel("fk", m.conservations, p?.conservation, "—")}
+    <div class="inline" style="margin-top:8px">
+      <div style="flex:1"><label class="lb">Prix du paquet (€)</label>${n("fp", "ex. 1,49", v("prix"))}</div>
+      <div style="flex:1"><label class="lb">Prix au kg (€)</label>${n("fpk", "si au poids", v("prix_kg"))}</div>
+    </div>
+    <label style="display:flex;gap:8px;align-items:center;margin-top:10px"><input type="checkbox" id="fap"${p?.au_poids ? " checked" : ""}> Vendu au poids</label>
+    <label class="lb" id="fnut">Nutrition pour ${unite === "pc" ? "1 pièce" : "100 " + unite}</label>
+    <p class="hint" style="margin:-2px 0 6px">kcal · protéines · glucides, puis lipides · fibres · poids d'une pièce (g)</p>
+    <div class="inline">${n("fkc", "kcal", v("kcal"))}${n("fpr", "prot.", v("prot"))}${n("fgl", "gluc.", v("gluc"))}</div>
+    <div class="inline" style="margin-top:6px">${n("fli", "lip.", v("lip"))}${n("ffi", "fibres", v("fibres"))}${n("fpp", "g / pièce", v("poids_piece"))}</div>
+    <label style="display:flex;gap:8px;align-items:center;margin-top:12px"><input type="checkbox" id="fba"${p?.basique ? " checked" : ""}> Basique (toujours en avoir)</label>
+    <label class="lb">Stock minimum</label>${n("fmi", "ex. 2", p?.basique ? v("stock_min") : "")}
+    <label class="lb">Libellé sur le ticket (facultatif)</label><input class="field" id="ft" maxlength="80" value="${esc(v("libelle_ticket"))}">
+    ${p ? "" : `<label class="lb">Quantité en stock</label>${n("fq", "0", "")}`}
+    <div class="foot"><button class="btn" data-close>Annuler</button><button class="btn primary" id="fok">Enregistrer</button></div>`, b => {
+    $("#fu", b).onchange = () => { const u = $("#fu", b).value; $("#fnut", b).textContent = `Nutrition pour ${u === "pc" ? "1 pièce" : "100 " + u}`; };
+    $("#fok", b).onclick = async e => {
+      e.preventDefault();
+      const g = id => $(id, b).value.trim().replace(",", ".");
+      const body = { nom: $("#fn", b).value.trim(), unite: $("#fu", b).value, rayon: $("#fr", b).value, conservation: $("#fk", b).value,
+        conditionnement: g("#fc"), prix: g("#fp"), prix_kg: g("#fpk"), au_poids: $("#fap", b).checked,
+        kcal: g("#fkc"), prot: g("#fpr"), gluc: g("#fgl"), lip: g("#fli"), fibres: g("#ffi"), poids_piece: g("#fpp"),
+        basique: $("#fba", b).checked, stock_min: g("#fmi"), libelle_ticket: $("#ft", b).value.trim() };
+      if (!body.nom) return toast("Donne un nom au produit");
+      if (!p && !body.rayon) return toast("Choisis un rayon");
+      const q = p ? 0 : parseFloat(g("#fq")) || 0;
+      dlg.close();
+      await act(async () => {
+        const r = await post(p ? `api/produit/${encodeURIComponent(p.id)}` : "api/produit", body);
+        if (q > 0) await post(`api/stock/${r.id}`, { delta: q, motif: "ajout manuel" });
+      }, p ? "Fiche mise à jour" : "Produit créé");
+    };
   });
 }
 
 function ajoutStock(s) {
   const opts = s.catalogue.map(p => `<option value="${esc(p.id)}">${esc(p.nom)} (${esc(p.unite)})</option>`).join("");
   openDlg(`<h3>Ajouter au stock</h3>
-    <label class="lb">Produit</label><select class="field" id="ap"><option value="">— choisir —</option>${opts}<option value="__new">+ Nouveau produit…</option></select>
-    <div id="newp" hidden><label class="lb">Nom</label><input class="field" id="an" maxlength="80">
-      <div class="inline" style="margin-top:8px"><select class="field" id="au">${s.unites.filter(u => u !== "portion").map(u => `<option>${u}</option>`).join("")}</select>
-      <input class="field" id="ac" type="number" inputmode="decimal" placeholder="Paquet (ex. 500)"></div>
-      <label class="lb">Rayon</label><select class="field" id="ar">${s.rayons.map(r => `<option>${esc(r)}</option>`).join("")}</select></div>
+    <label class="lb">Produit</label><select class="field" id="ap"><option value="">— choisir —</option>${opts}</select>
+    <p class="hint" style="margin-top:6px">Pas dans la liste ? <button class="btn ghost small" id="anew" style="padding:0 2px">+ Créer un nouveau produit</button> · <button class="btn ghost small" id="afiche" style="padding:0 2px" disabled>Modifier sa fiche</button></p>
     <label class="lb">Quantité ajoutée</label><input class="field" id="aq" type="number" inputmode="decimal" min="0" step="any">
     <div class="foot"><button class="btn" data-close>Annuler</button><button class="btn primary" id="aok">Ajouter</button></div>`, b => {
-    $("#ap", b).onchange = () => { $("#newp", b).hidden = $("#ap", b).value !== "__new"; const p = s.catalogue.find(x => x.id === $("#ap", b).value); if (p?.conditionnement) $("#aq", b).value = p.conditionnement; };
+    $("#ap", b).onchange = () => { const p = s.catalogue.find(x => x.id === $("#ap", b).value); $("#afiche", b).disabled = !p; if (p?.conditionnement) $("#aq", b).value = p.conditionnement; };
+    $("#anew", b).onclick = e => { e.preventDefault(); ficheProduit(null); };
+    $("#afiche", b).onclick = async e => { e.preventDefault(); try { ficheProduit(await api(`api/produit/${encodeURIComponent($("#ap", b).value)}`)); } catch (err) { toast(err.message); } };
     $("#aok", b).onclick = async e => {
       e.preventDefault();
-      let pid = $("#ap", b).value; const q = parseFloat(($("#aq", b).value || "").replace(",", "."));
+      const pid = $("#ap", b).value; const q = parseFloat(($("#aq", b).value || "").replace(",", "."));
       if (!pid || !(q > 0)) return toast("Choisis un produit et une quantité");
       dlg.close();
-      await act(async () => {
-        if (pid === "__new") pid = (await post("api/produit", { nom: $("#an", b).value, unite: $("#au", b).value, rayon: $("#ar", b).value, conditionnement: $("#ac", b).value })).id;
-        await post(`api/stock/${pid}`, { delta: q, motif: "ajout manuel" });
-      }, "Ajouté au stock");
+      await act(() => post(`api/stock/${pid}`, { delta: q, motif: "ajout manuel" }), "Ajouté au stock");
     };
   });
 }
@@ -423,7 +471,7 @@ async function renderCourses() {
       <input type="checkbox" class="chk" data-chk="${esc(l.produit)}"${l.coche ? " checked" : ""}>
       <div class="n"><div class="cl"><b>${esc(l.nom)}</b>
       ${l.paquets != null ? `<div class="step"><button data-pq="${esc(l.produit)}" data-v="${l.paquets - 1}" aria-label="Moins">−</button><span class="q">${esc(l.achat)}</span><button data-pq="${esc(l.produit)}" data-v="${l.paquets + 1}" aria-label="Plus">+</button></div>` : `<span class="q">${esc(l.achat)}</span>`}</div>
-      <small>besoin ${esc(l.besoin_affichage)}${l.prix != null ? " · " + euros(l.prix) : ""}${l.pour.length ? " · " + esc(l.pour.slice(0, 2).join(", ")) + (l.pour.length > 2 ? "…" : "") : ""}</small></div>
+      <small>${esc(l.detail || "besoin " + l.besoin_affichage)}${l.prix != null ? " · " + euros(l.prix) : ""}${l.pour.length ? " · " + esc(l.pour.slice(0, 2).join(", ")) + (l.pour.length > 2 ? "…" : "") : ""}</small></div>
       <button class="btn ghost small" data-ret="${esc(l.produit)}" title="Retirer de la liste" aria-label="Retirer">✕</button></div>`).join("") + `</div>`;
   }
   h += `<div class="section-title">Autres articles</div><div class="card">` + (c.libres.map(l => `<div class="row${l.coche ? " done" : ""}">

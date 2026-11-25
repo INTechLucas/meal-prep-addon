@@ -1,5 +1,5 @@
 name: Cuisine (Claude)
-version: "0.1.0"
+version: "0.2.0"
 slug: cuisine_claude
 description: Repas, batch cooking, stock et liste de courses Lidl, pilotés par Claude via MCP
 url: https://github.com/INTechLucas/meal-prep-addon

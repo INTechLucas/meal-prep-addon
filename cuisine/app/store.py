@@ -726,16 +726,24 @@ class Store:
                 cible[c["produit"]] = cible.get(c["produit"], 0) - c["quantite"]
         etats = {r["produit_id"]: dict(r) for r in self._q("SELECT * FROM liste_etat")}
         lignes, alertes = [], []
+        jour_long = jour_court(d0.isoformat())
         for p in self.produits(actifs=False):
             pid = p["id"]
-            projete = (p["stock"] or 0) - avant.get(pid, 0)
+            projete = max(0.0, (p["stock"] or 0) - avant.get(pid, 0))
             net = besoin.get(pid, 0)
             mini = (p["stock_min"] or 0) if p["basique"] else 0
-            manque = max(0.0, net + mini - max(projete, 0))
+            reel = max(0.0, net - projete)       # ce qui manque vraiment pour les repas prévus
+            fin = projete - net                  # stock restant à la fin de l'horizon
             if p["unite"] == "portion":
-                if manque > 0.01:
-                    alertes.append(f"{p['nom']} : il manquera {fmt_qte(manque, 'portion')} (vérifier le batch)")
+                if reel > 0.01:
+                    alertes.append(f"{p['nom']} : il manquera {fmt_qte(reel, 'portion')} (vérifier le batch)")
                 continue
+            if reel > 0.01:
+                manque = reel + mini             # on rachète et on reconstitue le minimum des basiques
+            elif mini and fin < mini / 2:
+                manque = mini - fin              # réassort : basique presque épuisé en fin de semaine
+            else:
+                manque = 0.0                     # le stock suffit (la marge de sécurité tolère un petit écart)
             if manque <= 0.01 or not p["actif"]:
                 continue
             e = etats.get(pid, {})
@@ -743,6 +751,10 @@ class Store:
                 continue
             ligne = {"produit": pid, "nom": p["nom"], "rayon": p["rayon"] or "Autre", "unite": p["unite"],
                      "besoin": round(manque, 1), "besoin_affichage": fmt_qte(manque, p["unite"]),
+                     "prevu": round(net, 1), "stock_projete": round(projete, 1),
+                     "detail": (f"prévu {fmt_qte(net, p['unite'])} · {jour_long} : il restera {fmt_qte(projete, p['unite'])}"
+                                if net > 0 else f"{jour_long} : il restera {fmt_qte(projete, p['unite'])}")
+                               + (f" · minimum {fmt_qte(mini, p['unite'])}" if mini else ""),
                      "pour": pour.get(pid, [])[:4] or (["réassort (basique)"] if mini else []),
                      "coche": bool(e.get("coche"))}
             if p["conditionnement"] and not p["au_poids"]:
