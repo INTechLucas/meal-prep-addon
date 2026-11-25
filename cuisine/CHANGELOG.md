@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.2.2
+- Le panneau Cuisine est visible par les utilisateurs non administrateurs.
+
 ## 0.2.1
 - Validation d'un repas : bouton « + Ajouter un ingrédient » pour indiquer un remplacement
   (mettre 0 à l'ingrédient remplacé, ajouter celui utilisé). Le stock et Claude en tiennent compte.
