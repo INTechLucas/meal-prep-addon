@@ -109,7 +109,9 @@
   .foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; position: sticky; bottom: 0; background: var(--card); padding-top: 8px; }
   .qrow { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-top: 1px solid var(--line); }
   .qrow .n { flex: 1; min-width: 0; font-size: 14px; } .qrow .n small { display: block; color: var(--ink3); font-size: 12px; }
-  .qrow input { width: 90px; text-align: right; } .qrow .u { width: 52px; color: var(--ink3); font-size: 12.5px; }
+  .qrow input { width: 90px; text-align: right; }
+  .xrow select { font-size: 14px; padding: 8px; }
+  .xrow input { width: 72px; } .qrow .u { width: 52px; color: var(--ink3); font-size: 12.5px; }
   .ing { list-style: none; padding: 0; margin: 0 0 8px; } .ing li { display: flex; justify-content: space-between; gap: 10px; padding: 5px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
   .ing li span:last-child { font-variant-numeric: tabular-nums; color: var(--ink2); white-space: nowrap; }
   .ing li.ko span:first-child::after { content: " · manque"; color: var(--warn); font-size: 12px; font-weight: 600; }
@@ -210,20 +212,53 @@ async function showRecette(rid, total, titre) {
 }
 
 // ---------------------------------------------------------------- validation d'un repas
+// Bloc « + Ajouter un ingrédient » : remplacements et ajouts au moment de valider un repas.
+let CATALOGUE = null;
+async function catalogue() {
+  if (!CATALOGUE) CATALOGUE = (await api("api/stock")).catalogue.filter(p => p.unite !== "portion");
+  return CATALOGUE;
+}
+function extrasHTML() {
+  return `<div id="extras"></div><button class="btn ghost small" id="addx" style="padding-left:0;margin-top:4px">+ Ajouter un ingrédient</button>`;
+}
+function bindExtras(b, cat) {
+  const opts = cat.map(p => `<option value="${esc(p.id)}" data-u="${esc(p.unite)}">${esc(p.nom)}${p.stock > 0 ? ` (${esc(qte(p.stock, p.unite))})` : ""}</option>`).join("");
+  $("#addx", b).addEventListener("click", e => {
+    e.preventDefault();
+    const row = document.createElement("div");
+    row.className = "qrow xrow";
+    row.innerHTML = `<select class="field" style="flex:1;min-width:0"><option value="">— produit —</option>${opts}</select>
+      <input class="field" type="number" inputmode="decimal" min="0" step="any" placeholder="qté"><span class="u"></span>
+      <button class="btn ghost small" aria-label="Retirer">✕</button>`;
+    const sel = $("select", row), unit = $(".u", row);
+    sel.onchange = () => { unit.textContent = sel.selectedOptions[0]?.dataset.u || ""; $("input", row).focus(); };
+    $("button", row).onclick = ev => { ev.preventDefault(); row.remove(); };
+    $("#extras", b).appendChild(row);
+    sel.focus();
+  });
+}
+function extrasLignes(b) {
+  return [...b.querySelectorAll(".xrow")].map(r => ({ produit: $("select", r).value, sens: "utilise",
+    quantite: parseFloat(($("input", r).value || "0").replace(",", ".")) || 0 })).filter(l => l.produit && l.quantite > 0);
+}
+
 async function valider(id, titre) {
-  let v;
-  try { v = await api(`api/repas/${id}/validation`); } catch (e) { return toast(e.message); }
+  let v, cat;
+  try { [v, cat] = await Promise.all([api(`api/repas/${id}/validation`), catalogue()]); } catch (e) { return toast(e.message); }
   const rows = v.lignes.map((l, i) => `<div class="qrow"><div class="n">${esc(l.nom)}<small>${l.sens === "produit" ? "produit → ajouté au stock" : `en stock : ${esc(qte(l.stock, l.unite))}`}</small></div>
     <input class="field" type="number" inputmode="decimal" min="0" step="any" data-i="${i}" value="${Math.round(l.quantite * 10) / 10}"><span class="u">${esc(l.unite)}</span></div>`).join("");
   openDlg(`<h3>${esc(titre)}</h3>
-    <p class="hint">${v.lignes.length ? "Quantités retirées du stock. Corrige si tu as utilisé plus ou moins." : "Ce repas n'a pas d'effet sur le stock."}</p>
-    ${rows}
-    <label class="lb">Note (facultatif)</label><input class="field" id="vnote" maxlength="300" placeholder="ex. plus de riz, trop salé…">
+    <p class="hint">Quantités retirées du stock. Corrige si tu as utilisé plus ou moins ; mets 0 à un ingrédient remplacé et ajoute celui qui l'a remplacé.</p>
+    ${rows}${extrasHTML()}
+    <label class="lb">Note (facultatif)</label><input class="field" id="vnote" maxlength="300" placeholder="ex. pâtes au lieu de patate douce">
     <div class="foot"><button class="btn" data-close>Annuler</button><button class="btn ok" id="vok">C'est fait ✓</button></div>`, b => {
+    bindExtras(b, cat);
     $("#vok", b).addEventListener("click", async e => {
       e.preventDefault();
-      const lignes = v.lignes.map((l, i) => ({ produit: l.produit, sens: l.sens, quantite: parseFloat(($(`[data-i="${i}"]`, b).value || "0").replace(",", ".")) || 0 }));
+      const lignes = v.lignes.map((l, i) => ({ produit: l.produit, sens: l.sens, quantite: parseFloat(($(`[data-i="${i}"]`, b).value || "0").replace(",", ".")) || 0 }))
+        .concat(extrasLignes(b));
       dlg.close();
+      CATALOGUE = null;
       await act(() => post(`api/repas/${id}/valider`, { statut: "fait", lignes, note: $("#vnote", b).value || null }), "Stock mis à jour");
     });
   });
@@ -291,14 +326,19 @@ async function renderJour() {
   bindMeals(view);
 }
 
-function horsPlan(dateIso) {
-  openDlg(`<h3>Repas hors plan</h3><p class="hint">Restes, resto, invitation… Ce sera signalé à Claude pour ajuster la suite.</p>
+async function horsPlan(dateIso) {
+  let cat; try { cat = await catalogue(); } catch (e) { return toast(e.message); }
+  openDlg(`<h3>Repas hors plan</h3><p class="hint">Restes, resto, plat improvisé… Ajoute les ingrédients utilisés pour mettre le stock à jour. Ce sera signalé à Claude pour ajuster la suite.</p>
     <label class="lb">Moment</label><select class="field" id="hm">${["petit_dej", "dejeuner", "collation", "diner"].map(m => `<option value="${m}">${MOMENTS[m]}</option>`).join("")}</select>
-    <label class="lb">Qu'avez-vous mangé ?</label><input class="field" id="hl" maxlength="120" placeholder="ex. restes de pâtes, resto japonais">
+    <label class="lb">Qu'avez-vous mangé ?</label><input class="field" id="hl" maxlength="120" placeholder="ex. pâtes carbonara, resto japonais">
+    <label class="lb">Ingrédients utilisés (facultatif)</label>${extrasHTML()}
     <div class="foot"><button class="btn" data-close>Annuler</button><button class="btn primary" id="hok">Enregistrer</button></div>`, b => {
+    bindExtras(b, cat);
     $("#hok", b).addEventListener("click", async e => {
-      e.preventDefault(); const lib = $("#hl", b).value.trim(); if (!lib) return;
-      dlg.close(); await act(() => post("api/hors_plan", { date: dateIso, moment: $("#hm", b).value, libelle: lib }), "Enregistré");
+      e.preventDefault(); const lib = $("#hl", b).value.trim(); if (!lib) return toast("Indique ce que vous avez mangé");
+      const lignes = extrasLignes(b);
+      dlg.close(); CATALOGUE = null;
+      await act(() => post("api/hors_plan", { date: dateIso, moment: $("#hm", b).value, libelle: lib, lignes }), "Enregistré");
     });
   });
 }
@@ -345,7 +385,7 @@ async function renderBatch() {
 // ---------------------------------------------------------------- Stock
 async function renderStock() {
   const s = await api("api/stock");
-  state.stockMeta = s;
+  state.stockMeta = s; CATALOGUE = null;
   const f = state.stockFiltre.toLowerCase();
   const items = s.stock.filter(p => !f || p.nom.toLowerCase().includes(f));
   let h = `<div class="inline" style="margin-bottom:12px"><input class="field" id="filtre" placeholder="Rechercher…" value="${esc(state.stockFiltre)}"><button class="btn primary" id="ajout">+ Ajouter</button></div>`;

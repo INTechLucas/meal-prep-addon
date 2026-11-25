@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.1
+- Validation d'un repas : bouton « + Ajouter un ingrédient » pour indiquer un remplacement
+  (mettre 0 à l'ingrédient remplacé, ajouter celui utilisé). Le stock et Claude en tiennent compte.
+- Repas hors plan : saisie des ingrédients utilisés, qui sortent du stock.
+
 ## 0.2.0
 - Liste de courses : n'achète que ce qui manque vraiment pour les repas prévus. Le minimum des basiques
   n'impose plus un achat pour un écart minime (réassort seulement si le stock prévu en fin de semaine
