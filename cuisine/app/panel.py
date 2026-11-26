@@ -23,6 +23,9 @@ LOG = logging.getLogger("cuisine.panel")
 STATIC = Path(__file__).parent / "static"
 CONSERVATIONS = ("Frigo", "Placard", "Congélateur", "Panier")
 ALLOWED = [ipaddress.ip_network(n) for n in os.environ.get("PANEL_ALLOWED", "172.30.32.2/32").split(",")]
+# Réseau interne des add-ons : d'autres add-ons (ex. « Liseuse ») peuvent lire ces routes, en GET uniquement
+INTERNE = ipaddress.ip_network(os.environ.get("PANEL_INTERNE", "172.30.32.0/23"))
+LECTURE_INTERNE = ("/api/jour", "/api/semaine", "/api/recette/")
 
 
 def render_md(text: str | None) -> str:
@@ -245,6 +248,11 @@ class IngressOnly:
                 ok = any(ipaddress.ip_address(ip) in n for n in ALLOWED)
             except ValueError:
                 ok = False
+            if not ok and scope.get("method") == "GET" and scope.get("path", "").startswith(LECTURE_INTERNE):
+                try:
+                    ok = ipaddress.ip_address(ip) in INTERNE
+                except ValueError:
+                    ok = False
             if not ok:
                 LOG.warning("Panneau : accès refusé depuis %s", ip)
                 return await PlainTextResponse("Forbidden", status_code=403)(scope, receive, send)

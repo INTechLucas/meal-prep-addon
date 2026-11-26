@@ -1,0 +1,36 @@
+name: Liseuse (Kobo)
+version: "0.1.0"
+slug: liseuse
+description: Panneau de la liseuse Kobo (KOReader) : maison, repas, recettes et séances du jour
+url: https://github.com/INTechLucas/meal-prep-addon
+arch:
+  - amd64
+  - aarch64
+startup: application
+boot: auto
+homeassistant_api: true
+ports:
+  8768/tcp: 8768
+ports_description:
+  8768/tcp: API de la liseuse (réseau local uniquement)
+options:
+  access_token: ""
+  etiquette: kobo
+  thermostat: climate.thermostat_salon
+  temperatures:
+    - sensor.temperature_salon_temperature
+    - sensor.temperature_chambre_temperature
+  meteo: weather.forecast_home
+  cuisine_url: http://916b7e14-cuisine-claude:8099
+  coach_url: http://080ebc33-garmin-coach-mcp:8099
+  log_level: info
+schema:
+  access_token: "password?"
+  etiquette: str
+  thermostat: "str?"
+  temperatures:
+    - str
+  meteo: "str?"
+  cuisine_url: "str?"
+  coach_url: "str?"
+  log_level: list(debug|info|warning|error)

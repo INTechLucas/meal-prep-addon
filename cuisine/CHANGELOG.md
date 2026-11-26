@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.3
+- Lecture des repas, du plan de la semaine et des recettes ouverte aux autres add-ons (réseau interne
+  de Home Assistant, lecture seule), pour l'add-on « Liseuse ».
+
 ## 0.2.2
 - Le panneau Cuisine est visible par les utilisateurs non administrateurs.
 

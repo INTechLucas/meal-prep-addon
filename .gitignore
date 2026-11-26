@@ -4,3 +4,5 @@ __pycache__/
 *.db-*
 options.json
 access_token
+liseuse/koplugin/maison.koplugin/config.lua
+liseuse/koplugin/maison.koplugin/version
