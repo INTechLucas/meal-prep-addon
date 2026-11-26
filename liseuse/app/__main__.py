@@ -157,6 +157,46 @@ def build_app(vues: Vues, token: str) -> Starlette:
         return vues.ressenti(str(c.get("a") or ""), str(c.get("id") or ""), str(c.get("activity_id") or ""),
                              rpe, douleurs[:10], str(c.get("note") or "")[:600])
 
+    def courses(r, _c):
+        return vues.courses()
+
+    def courses_cocher(r, c):
+        lid = c.get("libre_id")
+        return vues.courses_cocher(str(c.get("produit") or "") or None, int(lid) if lid not in (None, "") else None,
+                                   bool(c.get("coche", True)))
+
+    def courses_modifier(r, c):
+        return vues.courses_modifier(str(c.get("produit") or ""), 1 if int(c.get("sens") or 1) > 0 else -1)
+
+    def courses_retirer(r, c):
+        return vues.courses_retirer(str(c.get("produit") or ""))
+
+    def courses_libre(r, c):
+        return vues.courses_libre(str(c.get("texte") or ""))
+
+    def courses_libre_supprimer(r, c):
+        return vues.courses_libre_supprimer(entier(c, "id"))
+
+    def rangement(r, _c):
+        return vues.rangement()
+
+    def ranger(r, c):
+        lignes = c.get("lignes")
+        return vues.ranger(lignes if isinstance(lignes, list) else [])
+
+    def stock(r, _c):
+        return vues.stock()
+
+    def stock_catalogue(r, _c):
+        return vues.stock_catalogue()
+
+    def stock_ajuster(r, c):
+        dl = c.get("delta")
+        sens = c.get("sens")
+        return vues.stock_ajuster(str(c.get("produit") or ""), int(sens) if sens not in (None, "") else None,
+                                  float(dl) if dl not in (None, "") else None,
+                                  str(c.get("motif") or "liseuse")[:60])
+
     def rafraichir(r, _c):
         vues.cache.vider()
         return {"ok": True}
@@ -193,6 +233,17 @@ def build_app(vues: Vues, token: str) -> Starlette:
         Route("/api/seance/maintenant", api(maintenant_s), methods=["POST"]),
         Route("/api/seance/fait", api(fait_s), methods=["POST"]),
         Route("/api/seance/ressenti", api(ressenti), methods=["POST"]),
+        Route("/api/courses", api(courses)),
+        Route("/api/courses/cocher", api(courses_cocher), methods=["POST"]),
+        Route("/api/courses/modifier", api(courses_modifier), methods=["POST"]),
+        Route("/api/courses/retirer", api(courses_retirer), methods=["POST"]),
+        Route("/api/courses/libre", api(courses_libre), methods=["POST"]),
+        Route("/api/courses/libre/supprimer", api(courses_libre_supprimer), methods=["POST"]),
+        Route("/api/courses/rangement", api(rangement)),
+        Route("/api/courses/ranger", api(ranger), methods=["POST"]),
+        Route("/api/stock", api(stock)),
+        Route("/api/stock/catalogue", api(stock_catalogue)),
+        Route("/api/stock/ajuster", api(stock_ajuster), methods=["POST"]),
         Route("/api/rafraichir", api(rafraichir), methods=["POST"]),
         Route("/plugin", api(plugin)),
         Route("/plugin/{nom:path}", plugin_fichier),

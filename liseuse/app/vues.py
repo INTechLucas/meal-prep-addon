@@ -496,6 +496,150 @@ class Vues:
         self.cache.vider()
         return {"ok": True, "message": "Validation annulée, stock rétabli"}
 
+    # ---------- Courses
+
+    @staticmethod
+    def _euros(x: Any) -> str:
+        return f"{x:.2f} €".replace(".", ",") if isinstance(x, (int, float)) else ""
+
+    def courses(self) -> dict[str, Any]:
+        c = http_json(f"{self.cuisine}/api/courses")
+        rayons: dict[str, list[dict[str, Any]]] = {}
+        for l in c.get("lignes") or []:
+            pour = l.get("pour") or []
+            rayons.setdefault(l.get("rayon") or "Autre", []).append({
+                "produit": l["produit"], "nom": l.get("nom") or l["produit"], "coche": bool(l.get("coche")),
+                "achat": " · ".join(x for x in (l.get("achat") or "", self._euros(l.get("prix"))) if x),
+                "detail": ", ".join(pour[:2]) + ("…" if len(pour) > 2 else "") if pour else (l.get("detail") or ""),
+            })
+        libres = [{"id": x["id"], "texte": x.get("texte") or "", "coche": bool(x.get("coche"))} for x in c.get("libres") or []]
+        n = sum(len(v) for v in rayons.values()) + len(libres)
+        coches = sum(1 for v in rayons.values() for l in v if l["coche"]) + sum(1 for x in libres if x["coche"])
+        d = date.fromisoformat(c["date_courses"]) if c.get("date_courses") else aujourdhui()
+        resume = [f"{n} article" + ("s" if n > 1 else "")]
+        if c.get("total_estime"):
+            resume.append("≈ " + self._euros(c["total_estime"]))
+        if c.get("repas_prevus"):
+            resume.append(f"{c['repas_prevus']} repas")
+        return {"titre": f"Courses du {jour_long(d).lower()}", "resume": " · ".join(resume), "nb_coches": coches,
+                "alertes": c.get("alertes") or [],
+                "rayons": [{"nom": k, "lignes": v} for k, v in rayons.items()], "libres": libres}
+
+    def _cuisine_post(self, chemin: str, corps: dict[str, Any]) -> Any:
+        res = http_post(self.cuisine + chemin, corps)
+        self.cache.vider()
+        return res
+
+    def courses_cocher(self, produit: str | None, libre_id: int | None, coche: bool) -> dict[str, Any]:
+        corps: dict[str, Any] = {"coche": coche}
+        if libre_id is not None:
+            corps["libre_id"] = libre_id
+        else:
+            corps["produit"] = produit
+        self._cuisine_post("/api/courses/cocher", corps)
+        return self.courses()
+
+    def courses_modifier(self, produit: str, sens: int) -> dict[str, Any]:
+        c = http_json(f"{self.cuisine}/api/courses")
+        l = next((x for x in c.get("lignes") or [] if x.get("produit") == produit), None)
+        if l is None:
+            raise SourceError("article introuvable dans la liste")
+        if l.get("paquets") is not None:
+            nouveau = float(l["paquets"]) + sens
+        else:
+            u = l.get("unite") or "g"
+            pas = 50 if u in ("g", "ml") else 1
+            nouveau = float(l.get("quantite") or 0) + sens * pas
+        if nouveau <= 0:
+            self._cuisine_post("/api/courses/modifier", {"produit": produit, "retire": True})
+        else:
+            self._cuisine_post("/api/courses/modifier", {"produit": produit, "paquets": nouveau})
+        return self.courses()
+
+    def courses_retirer(self, produit: str) -> dict[str, Any]:
+        self._cuisine_post("/api/courses/modifier", {"produit": produit, "retire": True})
+        return self.courses()
+
+    def courses_libre(self, texte: str) -> dict[str, Any]:
+        if not texte.strip():
+            raise SourceError("texte vide")
+        self._cuisine_post("/api/courses/libre", {"texte": texte.strip()[:200]})
+        return self.courses()
+
+    def courses_libre_supprimer(self, lid: int) -> dict[str, Any]:
+        self._cuisine_post(f"/api/courses/libre/{lid}/supprimer", {})
+        return self.courses()
+
+    def rangement(self) -> dict[str, Any]:
+        r = http_json(f"{self.cuisine}/api/courses/rangement")
+        lignes = []
+        for l in r.get("lignes") or []:
+            u, q = l.get("unite") or "g", float(l.get("quantite") or 0)
+            lignes.append({"produit": l["produit"], "nom": l.get("nom"), "unite": u, "quantite": round(q, 1),
+                           "pas": self._pas_stock(u), "info": ""})
+        return {"titre": "Ranger les courses", "lignes": lignes}
+
+    def ranger(self, lignes: list[dict[str, Any]]) -> dict[str, Any]:
+        propres = [{"produit": l.get("produit"), "quantite": float(l.get("quantite") or 0)}
+                   for l in lignes if isinstance(l, dict) and float(l.get("quantite") or 0) > 0]
+        self._cuisine_post("/api/courses/ranger", {"lignes": propres})
+        return {"ok": True, "message": f"{len(propres)} produit(s) rangé(s) dans le stock"}
+
+    # ---------- Stock
+
+    @staticmethod
+    def _pas_stock(unite: str) -> float:
+        return 50 if unite in ("g", "ml") else 1
+
+    def stock(self) -> dict[str, Any]:
+        s = http_json(f"{self.cuisine}/api/stock")
+        auj = aujourdhui()
+        par: dict[str, list[dict[str, Any]]] = {}
+        for p in s.get("stock") or []:
+            info, proche = p.get("conservation") or "", False
+            if p.get("dlc"):
+                try:
+                    dl = date.fromisoformat(p["dlc"])
+                    info, proche = f"DLC {dl.day:02d}/{dl.month:02d}", (dl - auj).days <= 2
+                except ValueError:
+                    pass
+            if p.get("sous_min"):
+                info = " · ".join(x for x in (info, "sous le minimum") if x)
+            par.setdefault(p.get("rayon") or "Autre", []).append({
+                "id": p["id"], "nom": p.get("nom") or p["id"], "affichage": p.get("affichage") or "",
+                "info": info, "alerte": bool(p.get("sous_min") or proche)})
+        ordre = list(s.get("rayons") or [])
+        rayons = sorted(par.items(), key=lambda kv: ordre.index(kv[0]) if kv[0] in ordre else 99)
+        sous = [p.get("nom") for p in s.get("stock") or [] if p.get("sous_min")]
+        return {"titre": "Stock", "resume": f"{sum(len(v) for v in par.values())} produits",
+                "alerte": ("Sous le minimum : " + ", ".join(sous)) if sous else "",
+                "rayons": [{"nom": k, "produits": v} for k, v in rayons]}
+
+    def stock_catalogue(self) -> dict[str, Any]:
+        s = http_json(f"{self.cuisine}/api/stock")
+        par: dict[str, list[dict[str, Any]]] = {}
+        for p in s.get("catalogue") or []:
+            u = p.get("unite") or "g"
+            if u == "portion":
+                continue
+            par.setdefault(p.get("rayon") or "Autre", []).append({
+                "id": p["id"], "nom": p.get("nom") or p["id"], "unite": u, "pas": self._pas_stock(u),
+                "defaut": float(p.get("conditionnement") or self._pas_stock(u)),
+                "en_stock": f"en stock : {self._quantite(float(p.get('stock') or 0), u)}" if (p.get("stock") or 0) > 0 else ""})
+        ordre = list(s.get("rayons") or [])
+        rayons = sorted(par.items(), key=lambda kv: ordre.index(kv[0]) if kv[0] in ordre else 99)
+        return {"titre": "Ajouter au stock", "rayons": [{"nom": k, "produits": sorted(v, key=lambda x: x["nom"])} for k, v in rayons]}
+
+    def stock_ajuster(self, produit: str, sens: int | None, delta: float | None, motif: str) -> dict[str, Any]:
+        if delta is None:
+            s = http_json(f"{self.cuisine}/api/stock")
+            p = next((x for x in s.get("catalogue") or [] if x.get("id") == produit), None)
+            if p is None:
+                raise SourceError("produit introuvable")
+            delta = (sens or 0) * self._pas_stock(p.get("unite") or "g")
+        self._cuisine_post(f"/api/stock/{urllib.parse.quote(produit)}", {"delta": delta, "motif": motif})
+        return self.stock()
+
     # ---------- Séances
 
     def _athletes(self) -> list[dict[str, str]]:

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.0
+- Onglet Courses : liste par rayon, cocher, quantité à acheter (− / +), retirer un article, articles libres
+  (clavier), rangement des courses dans le stock avec quantités ajustables.
+- Onglet Stock : stock par rayon, ajuster (− / +), alertes (sous le minimum, DLC proche), ajout d'un produit
+  du catalogue.
+- Écrans d'action paginés (balayage) quand la liste est longue.
+
 ## 0.3.0
 - Recettes : quantités réparties par personne (comme le panneau Cuisine) et valeurs nutritionnelles.
 - Repas : depuis la recette, « C'est fait » (quantités utilisées ajustables avec − / +, note au clavier),

@@ -26,8 +26,8 @@ ALLOWED = [ipaddress.ip_network(n) for n in os.environ.get("PANEL_ALLOWED", "172
 # Réseau interne des add-ons : d'autres add-ons (ex. « Liseuse ») peuvent lire ces routes (GET)
 # et utiliser les actions du panneau listées dans ECRITURE_INTERNE (POST)
 INTERNE = ipaddress.ip_network(os.environ.get("PANEL_INTERNE", "172.30.32.0/23"))
-ECRITURE_INTERNE = ("/api/repas/",)
-LECTURE_INTERNE = ("/api/jour", "/api/semaine", "/api/recette/", "/api/repas/")
+ECRITURE_INTERNE = ("/api/repas/", "/api/courses/", "/api/stock/")
+LECTURE_INTERNE = ("/api/jour", "/api/semaine", "/api/recette/", "/api/repas/", "/api/courses", "/api/stock")
 
 
 def render_md(text: str | None) -> str:

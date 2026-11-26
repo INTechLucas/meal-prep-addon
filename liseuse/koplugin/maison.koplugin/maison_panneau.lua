@@ -32,6 +32,8 @@ local icone, texte_w, paragraphe = UI.icone, UI.texte, UI.paragraphe
 local ONGLETS = {
     { id = "maison", lib = "Maison", icone = "home" },
     { id = "repas", lib = "Repas", icone = "silverware_fork_knife" },
+    { id = "courses", lib = "Courses", icone = "cart_outline" },
+    { id = "stock", lib = "Stock", icone = "fridge_outline" },
     { id = "seances", lib = "Séances", icone = "run" },
 }
 local RAFRAICHISSEMENT_AUTO = 300   -- secondes
@@ -91,7 +93,7 @@ function Panneau:init()
     self.onglet = "maison"
     self.page = 1
     self.donnees = {}
-    self.vues = { repas = "jour", seances = "jour" }
+    self.vues = { repas = "jour", seances = "jour", stock = "stock" }
     self.jours = {}
     self.statut = "Chargement…"
     self.erreur = false
@@ -164,6 +166,10 @@ function Panneau:requete_onglet()
         return "/api/maison", nil
     elseif self.onglet == "repas" then
         return self.vues.repas == "semaine" and "/api/repas/semaine" or "/api/repas", { d = d }
+    elseif self.onglet == "courses" then
+        return "/api/courses", nil
+    elseif self.onglet == "stock" then
+        return self.vues.stock == "catalogue" and "/api/stock/catalogue" or "/api/stock", nil
     else
         return self.vues.seances == "semaine" and "/api/seances/semaine" or "/api/seances", { d = d }
     end
@@ -717,6 +723,277 @@ function Panneau:blocs_seances(d)
     return blocs
 end
 
+-- --------------------------------------------------------------- onglets Courses et Stock
+
+-- Action qui renvoie la nouvelle vue de l'onglet courant (liste de courses, stock)
+function Panneau:action_vue(message, chemin, corps)
+    self:annoncer(message)
+    local onglet = self.onglet
+    local data, err = self.client:post(chemin, corps)
+    if data then
+        self.donnees[onglet] = data
+        self.statut, self.erreur = nil, false
+    else
+        self.statut, self.erreur = texte(err), true
+    end
+    self:rafraichir()
+end
+
+-- Ligne avec contrôles : [case/zone gauche] texte […boutons à droite]
+function Panneau:ligne_controle(opts)
+    local L = self:largeur_utile()
+    local droite = opts.droite or {}
+    local largeur_droite = 0
+    for _, w in ipairs(droite) do largeur_droite = largeur_droite + w:getSize().w + S(6) end
+    local gauche_l = L - largeur_droite
+    local case_l = opts.case and S(40) or 0
+    local texte_l = gauche_l - case_l - (case_l > 0 and S(10) or 0) - S(4)
+    local lignes = { paragraphe(opts.titre or "", 16, texte_l, { gras = opts.gras ~= false }) }
+    if opts.sous and opts.sous ~= "" then
+        table.insert(lignes, texte_w(opts.sous, 13, { largeur = texte_l, gras = opts.sous_gras }))
+    end
+    local elements = {}
+    if opts.case then
+        table.insert(elements, icone(opts.coche and "checkbox_marked" or "checkbox_blank_outline", case_l))
+        table.insert(elements, HorizontalSpan:new{ width = S(10) })
+    end
+    table.insert(elements, colonne(lignes, 0))
+    local gauche = Carte:new{
+        contenu = rangee(elements, 0),
+        largeur = gauche_l,
+        hauteur_min = S(50),
+        bordure = 0,
+        rayon = 0,
+        marge_interne = 0,
+        callback = opts.callback,
+    }
+    local g = { gauche }
+    for _, w in ipairs(droite) do
+        table.insert(g, HorizontalSpan:new{ width = S(6) })
+        table.insert(g, w)
+    end
+    return rangee(g, 0)
+end
+
+function Panneau:petit_bouton(nom, callback, opts)
+    opts = opts or {}
+    local cote = S(opts.cote or 44)
+    return self:bouton_icone(nom, cote, callback, { bordure = opts.bordure or Size.border.thin,
+        rayon = math.floor(cote / 2), taille_icone = S(opts.icone or 24), inverse = opts.inverse,
+        largeur = opts.largeur, libelle = opts.libelle })
+end
+
+function Panneau:saisir(titre, callback)
+    local InputDialog = require("ui/widget/inputdialog")
+    local dlg
+    dlg = InputDialog:new{
+        title = titre,
+        input = "",
+        buttons = { {
+            { text = "Annuler", id = "close", callback = function() UIManager:close(dlg) end },
+            { text = "Ajouter", is_enter_default = true, callback = function()
+                local t = dlg:getInputText()
+                UIManager:close(dlg)
+                if t and t:match("%S") then callback(t) end
+            end },
+        } },
+    }
+    UIManager:show(dlg)
+    dlg:onShowKeyboard()
+end
+
+function Panneau:blocs_courses(d)
+    local blocs = {}
+    local n = tonumber(d.nb_coches) or 0
+    local ranger = Carte:new{
+        contenu = rangee({ icone("package_variant_closed", S(24), n > 0),
+            texte_w("Ranger (" .. n .. ")", 15, { gras = true, blanc = n > 0 }) }, S(6)),
+        largeur = S(150), hauteur_min = S(48), centre = true, inverse = n > 0,
+        bordure = Size.border.thick, rayon = S(12), marge_interne = S(4),
+        callback = function() if n > 0 then self:ranger_courses() end end,
+    }
+    local ajouter = self:petit_bouton("plus", function()
+        self:saisir("Ajouter un article", function(t)
+            self:action_vue("Ajout…", "/api/courses/libre", { texte = t })
+        end)
+    end, { cote = 48, bordure = Size.border.thick })
+    local tete_l = self:largeur_utile() - ranger:getSize().w - ajouter:getSize().w - 2 * self.ecart
+    local tete = colonne({ texte_w(texte(d.titre), 18, { gras = true, largeur = tete_l }),
+                           texte_w(texte(d.resume), 14, { largeur = tete_l }) }, 0)
+    table.insert(blocs, rangee({ Carte:new{ contenu = tete, largeur = tete_l, bordure = 0, marge_interne = 0, rayon = 0 },
+        ajouter, ranger }, self.ecart))
+    for _, a in ipairs(liste(d.alertes)) do table.insert(blocs, self:vide(texte(a))) end
+
+    for _, r in ipairs(liste(d.rayons)) do
+        table.insert(blocs, self:titre_section(texte(r.nom)))
+        for _, l in ipairs(liste(r.lignes)) do
+            local pid, coche = texte(l.produit), l.coche == true
+            table.insert(blocs, self:ligne_controle{
+                case = true, coche = coche,
+                titre = texte(l.nom), sous = joindre({ texte(l.achat), texte(l.detail) }, "  ·  "),
+                callback = function()
+                    self:action_vue("…", "/api/courses/cocher", { produit = pid, coche = not coche })
+                end,
+                droite = {
+                    self:petit_bouton("minus", function()
+                        self:action_vue("Quantité…", "/api/courses/modifier", { produit = pid, sens = -1 })
+                    end),
+                    self:petit_bouton("plus", function()
+                        self:action_vue("Quantité…", "/api/courses/modifier", { produit = pid, sens = 1 })
+                    end),
+                    self:petit_bouton("close", function()
+                        self:confirmer("Retirer « " .. texte(l.nom) .. " » de la liste jusqu'aux prochaines courses ?",
+                            "Retirer", function()
+                                self:action_vue("Retrait…", "/api/courses/retirer", { produit = pid })
+                            end)
+                    end, { bordure = 0 }),
+                },
+            })
+        end
+    end
+
+    local libres = liste(d.libres)
+    table.insert(blocs, self:titre_section("Autres articles"))
+    if #libres == 0 then
+        table.insert(blocs, self:vide("Touche + en haut pour ajouter un article (éponges, café…)."))
+    end
+    for _, l in ipairs(libres) do
+        local lid, coche = l.id, l.coche == true
+        table.insert(blocs, self:ligne_controle{
+            case = true, coche = coche, titre = texte(l.texte),
+            callback = function()
+                self:action_vue("…", "/api/courses/cocher", { libre_id = lid, coche = not coche })
+            end,
+            droite = { self:petit_bouton("close", function()
+                self:action_vue("Suppression…", "/api/courses/libre/supprimer", { id = lid })
+            end, { bordure = 0 }) },
+        })
+    end
+    return blocs
+end
+
+function Panneau:ranger_courses()
+    local data, err = self.client:get("/api/courses/rangement", nil, 30)
+    if not data then return self:message(err, true) end
+    local ecran
+    ecran = Ecrans.EcranValidation:new{
+        donnees = data,
+        titre_ecran = "Ranger les courses",
+        intro = "Les articles cochés entrent dans le stock. Corrige les quantités pesées ou les formats "
+            .. "différents ; les articles libres cochés sont retirés de la liste.",
+        libelle_ok = "Ranger",
+        avec_note = false,
+        on_valider = function(lignes)
+            self:envoyer("/api/courses/ranger", { lignes = lignes }, { ecran })
+        end,
+    }
+    UIManager:show(ecran)
+end
+
+function Panneau:blocs_stock(d)
+    local blocs = {}
+    local ajouter = Carte:new{
+        contenu = rangee({ icone("plus", S(24)), texte_w("Ajouter", 15, { gras = true }) }, S(6)),
+        largeur = S(140), hauteur_min = S(48), centre = true, bordure = Size.border.thick, rayon = S(12),
+        marge_interne = S(4),
+        callback = function()
+            self.vues.stock = "catalogue"
+            self.page = 1
+            self:charger()
+        end,
+    }
+    local tete_l = self:largeur_utile() - ajouter:getSize().w - self.ecart
+    table.insert(blocs, rangee({
+        Carte:new{ contenu = colonne({ texte_w(texte(d.titre), 18, { gras = true }), texte_w(texte(d.resume), 14) }, 0),
+                   largeur = tete_l, bordure = 0, marge_interne = 0, rayon = 0 },
+        ajouter }, self.ecart))
+    if texte(d.alerte) ~= "" then
+        table.insert(blocs, paragraphe(texte(d.alerte), 14, self:largeur_utile(), { gras = true }))
+    end
+    for _, r in ipairs(liste(d.rayons)) do
+        table.insert(blocs, self:titre_section(texte(r.nom)))
+        for _, p in ipairs(liste(r.produits)) do
+            local pid = texte(p.id)
+            table.insert(blocs, self:ligne_controle{
+                titre = texte(p.nom), sous = texte(p.info), sous_gras = p.alerte == true,
+                droite = {
+                    self:petit_bouton("minus", function()
+                        self:action_vue("Stock…", "/api/stock/ajuster", { produit = pid, sens = -1 })
+                    end),
+                    Carte:new{ contenu = texte_w(texte(p.affichage), 16, { gras = true }), largeur = S(84),
+                               hauteur_min = S(44), centre = true, bordure = 0, marge_interne = 0 },
+                    self:petit_bouton("plus", function()
+                        self:action_vue("Stock…", "/api/stock/ajuster", { produit = pid, sens = 1 })
+                    end),
+                },
+            })
+        end
+    end
+    return blocs
+end
+
+function Panneau:blocs_catalogue(d)
+    local blocs = {}
+    local retour = Carte:new{
+        contenu = rangee({ icone("chevron_left", S(24)), texte_w("Stock", 15, { gras = true }) }, S(6)),
+        largeur = S(120), hauteur_min = S(48), centre = true, bordure = Size.border.thin, rayon = S(24),
+        marge_interne = S(4),
+        callback = function()
+            self.vues.stock = "stock"
+            self.page = 1
+            self:charger()
+        end,
+    }
+    table.insert(blocs, rangee({ retour, texte_w(texte(d.titre), 18, { gras = true }) }, self.ecart))
+    table.insert(blocs, self:vide("Touche un produit pour l'ajouter au stock."))
+    local par_rangee = 2
+    local largeur = self:case(par_rangee)
+    for _, r in ipairs(liste(d.rayons)) do
+        table.insert(blocs, self:titre_section(texte(r.nom)))
+        local produits = liste(r.produits)
+        for i = 1, #produits, par_rangee do
+            local cases = {}
+            for j = i, math.min(i + par_rangee - 1, #produits) do
+                local p = produits[j]
+                local interieur = Carte.interieur(largeur, Size.border.thin, S(8))
+                table.insert(cases, Carte:new{
+                    contenu = colonne({ texte_w(texte(p.nom), 15, { gras = true, largeur = interieur }),
+                        texte_w(texte(p.en_stock), 12, { largeur = interieur }) }, 0),
+                    largeur = largeur, hauteur_min = S(54), bordure = Size.border.thin, rayon = S(10),
+                    marge_interne = S(8),
+                    callback = function() self:ajouter_stock(p) end,
+                })
+            end
+            table.insert(blocs, rangee(cases, self.ecart))
+        end
+    end
+    return blocs
+end
+
+function Panneau:ajouter_stock(p)
+    local ecran
+    ecran = Ecrans.EcranValidation:new{
+        donnees = { titre = texte(p.nom), lignes = { {
+            produit = texte(p.id), nom = texte(p.nom), unite = texte(p.unite), info = texte(p.en_stock),
+            quantite = tonumber(p.defaut) or 1, pas = tonumber(p.pas) or 1 } } },
+        titre_ecran = "Ajouter : " .. texte(p.nom),
+        intro = "Quantité à ajouter au stock.",
+        libelle_ok = "Ajouter",
+        avec_note = false,
+        on_valider = function(lignes)
+            local q = lignes[1] and lignes[1].quantite or 0
+            if q <= 0 then return UIManager:close(ecran) end
+            -- après l'ajout, retour à la liste du stock
+            self.vues.stock = "stock"
+            self.page = 1
+            local res = self:envoyer("/api/stock/ajuster", { produit = texte(p.id), delta = q, motif = "ajout manuel" },
+                { ecran })
+            if not res then self.vues.stock = "catalogue" end
+        end,
+    }
+    UIManager:show(ecran)
+end
+
 -- --------------------------------------------------------------- assemblage
 
 function Panneau:entete()
@@ -772,7 +1049,7 @@ function Panneau:pied()
         local id = o.id
         local actif = id == self.onglet
         table.insert(boutons, self:bouton_icone(o.icone, S(62), function() self:changer_onglet(id) end, {
-            libelle = o.lib, taille_libelle = 15, inverse = actif, taille_icone = S(28),
+            libelle = o.lib, taille_libelle = 14, inverse = actif, taille_icone = S(28),
             largeur = self:case(#ONGLETS), bordure = actif and Size.border.thick or 0, rayon = S(14),
         }))
     end
@@ -837,6 +1114,9 @@ function Panneau:construire()
         local ok, res = pcall(function()
             if self.onglet == "maison" then return self:blocs_maison(d)
             elseif self.onglet == "repas" then return self:blocs_repas(d)
+            elseif self.onglet == "courses" then return self:blocs_courses(d)
+            elseif self.onglet == "stock" then
+                return self.vues.stock == "catalogue" and self:blocs_catalogue(d) or self:blocs_stock(d)
             else return self:blocs_seances(d) end
         end)
         if ok then

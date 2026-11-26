@@ -6,6 +6,7 @@ Chaque écran a un en-tête (Retour + titre), un corps et une barre de boutons e
 local Blitbuffer = require("ffi/blitbuffer")
 local FrameContainer = require("ui/widget/container/framecontainer")
 local Geom = require("ui/geometry")
+local GestureRange = require("ui/gesturerange")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
 local HorizontalSpan = require("ui/widget/horizontalspan")
 local InputContainer = require("ui/widget/container/inputcontainer")
@@ -62,8 +63,50 @@ function Ecran:init()
     self.marge = S(12)
     self.ecart = S(10)
     self.L = self.W - 2 * self.marge
+    self.page = 1
+    self.ges_events = { Balayer = { GestureRange:new{ ges = "swipe", range = self.dimen } } }
     if self.preparer then self:preparer() end
     self:construire()
+end
+
+function Ecran:onBalayer(_, ges)
+    if not ges or (self.nb_pages or 1) < 2 then return true end
+    local p = self.page + (ges.direction == "west" and 1 or (ges.direction == "east" and -1 or 0))
+    if p >= 1 and p <= self.nb_pages and p ~= self.page then
+        self.page = p
+        self:rafraichir()
+    end
+    return true
+end
+
+-- Répartit les blocs en pages de hauteur h
+function Ecran:paginer(blocs, h)
+    local pages, courante, utilise = {}, {}, 0
+    for _, b in ipairs(blocs) do
+        local bh = b:getSize().h
+        if #courante > 0 and utilise + self.ecart + bh > h then
+            table.insert(pages, courante)
+            courante, utilise = {}, 0
+        end
+        if #courante > 0 then utilise = utilise + self.ecart end
+        table.insert(courante, b)
+        utilise = utilise + bh
+    end
+    if #courante > 0 then table.insert(pages, courante) end
+    if #pages == 0 then pages = { {} } end
+    return pages
+end
+
+function Ecran:barre_pages()
+    local cote = S(44)
+    return rangee({
+        self:bouton{ icone = "chevron_left", largeur = cote, hauteur = cote, rayon = math.floor(cote / 2),
+            bordure = Size.border.thin, callback = function() self:onBalayer(nil, { direction = "east" }) end },
+        Carte:new{ contenu = UI.texte(string.format("%d / %d", self.page, self.nb_pages), 16),
+            largeur = self.L - 2 * cote - 2 * self.ecart, hauteur_min = cote, centre = true, bordure = 0, marge_interne = 0 },
+        self:bouton{ icone = "chevron_right", largeur = cote, hauteur = cote, rayon = math.floor(cote / 2),
+            bordure = Size.border.thin, callback = function() self:onBalayer(nil, { direction = "west" }) end },
+    }, self.ecart)
 end
 
 -- Bouton : icône et/ou libellé
@@ -133,7 +176,22 @@ function Ecran:construire()
         VerticalSpan:new{ width = S(10) },
     })
     local h_corps = self.H - entete:getSize().h - pied:getSize().h - 2 * self.ecart
-    local corps = colonne(self:blocs(h_corps) or {}, self.ecart)
+    local blocs = self:blocs(h_corps) or {}
+    local pages = self:paginer(blocs, h_corps)
+    if #pages > 1 then
+        self.nb_pages = #pages
+        local barre = self:barre_pages()
+        pages = self:paginer(blocs, h_corps - barre:getSize().h - self.ecart)
+    end
+    self.nb_pages = #pages
+    self.page = math.max(1, math.min(self.page, self.nb_pages))
+    local contenu_page = pages[self.page]
+    if self.nb_pages > 1 then
+        local restant = h_corps - self:barre_pages():getSize().h - self.ecart
+        local c = colonne(contenu_page, self.ecart)
+        contenu_page = { c, VerticalSpan:new{ width = math.max(0, restant - c:getSize().h) }, self:barre_pages() }
+    end
+    local corps = colonne(contenu_page, self.ecart)
     self[1] = FrameContainer:new{
         background = Blitbuffer.COLOR_WHITE,
         bordersize = 0, padding = 0, margin = 0,
@@ -192,12 +250,16 @@ end
 -- ------------------------------------------------------------------ valider un repas
 
 local EcranValidation = Ecran:extend{
-    donnees = nil,     -- réponse de /api/repas/validation
+    donnees = nil,     -- { titre, lignes = { {produit, sens, nom, unite, info, quantite, pas} } }
     on_valider = nil,  -- function(lignes, note)
+    intro = "Quantités retirées du stock. Corrige si tu as utilisé plus ou moins ; "
+        .. "mets 0 à un ingrédient que tu n'as pas utilisé.",
+    libelle_ok = "C'est fait",
+    avec_note = true,
 }
 
 function EcranValidation:preparer()
-    self.titre = self.donnees.titre or "Repas"
+    self.titre = self.titre_ecran or self.donnees.titre or "Repas"
     self.lignes = {}
     for _, l in ipairs(type(self.donnees.lignes) == "table" and self.donnees.lignes or {}) do
         table.insert(self.lignes, {
@@ -209,10 +271,7 @@ function EcranValidation:preparer()
 end
 
 function EcranValidation:blocs()
-    local blocs = {
-        UI.paragraphe("Quantités retirées du stock. Corrige si tu as utilisé plus ou moins ; "
-            .. "mets 0 à un ingrédient que tu n'as pas utilisé.", 14, self.L),
-    }
+    local blocs = { UI.paragraphe(self.intro, 14, self.L) }
     local cote = S(50)
     local valeur_l = S(92)
     local texte_l = self.L - 2 * cote - valeur_l - 3 * self.ecart
@@ -238,6 +297,7 @@ function EcranValidation:blocs()
                 end },
         }, self.ecart))
     end
+    if not self.avec_note then return blocs end
     table.insert(blocs, self:bouton{
         icone = "pencil", libelle = self.note ~= "" and ("Note : " .. self.note) or "Ajouter une note",
         largeur = self.L, hauteur = S(48), bordure = Size.border.thin, gras = false,
@@ -255,7 +315,7 @@ function EcranValidation:boutons_pied()
     return {
         self:bouton{ libelle = "Annuler", largeur = self:case(2), bordure = Size.border.thin,
             callback = function() self:fermer() end },
-        self:bouton{ icone = "check_circle", libelle = "C'est fait", largeur = self:case(2), inverse = true,
+        self:bouton{ icone = "check_circle", libelle = self.libelle_ok, largeur = self:case(2), inverse = true,
             callback = function()
                 local lignes = {}
                 for _, l in ipairs(self.lignes) do

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.6
+- La liseuse peut aussi gérer la liste de courses (cocher, quantités, articles libres, rangement) et le
+  stock (ajuster, ajouter un produit).
+
 ## 0.2.5
 - La liseuse (add-on « Liseuse ») peut valider un repas (fait, pas fait, quantités utilisées) et annuler
   une validation, via le réseau interne de Home Assistant.
