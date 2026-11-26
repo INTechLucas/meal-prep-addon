@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.5
+- La liseuse (add-on « Liseuse ») peut valider un repas (fait, pas fait, quantités utilisées) et annuler
+  une validation, via le réseau interne de Home Assistant.
+
 ## 0.2.4
 - Fiches recettes : sous chaque ingrédient, la part de chaque personne selon les portions du repas
   (ex. « Lucas 120 g · Anaïs 90 g »), le total à droite. Arrondi pratique : 5 g/ml au-delà de 50 g.

@@ -21,8 +21,11 @@ local PluginShare = require("pluginshare")
 local Screen = Device.screen
 local logger = require("logger")
 
+local ConfirmBox = require("ui/widget/confirmbox")
+local InfoMessage = require("ui/widget/infomessage")
 local UI = require("maison_carte")
 local VueHtml = require("maison_vuehtml")
+local Ecrans = require("maison_ecrans")
 local Carte = UI.Carte
 local icone, texte_w, paragraphe = UI.icone, UI.texte, UI.paragraphe
 
@@ -240,12 +243,110 @@ function Panneau:ouvrir_html(chemin, params)
     end
     self.statut, self.erreur = nil, false
     self:construire()
+    local cible = type(data.cible) == "table" and data.cible or {}
     UIManager:show(VueHtml:new{
         titre = texte(data.titre),
         html = texte(data.html),
         css = texte(data.css),
+        actions = liste(data.actions),
+        on_action = function(action, vue) self:executer_action(texte(action.id), cible, vue, chemin, params) end,
         on_close = function() UIManager:setDirty(self, "full") end,
     })
+end
+
+-- --------------------------------------------------------------- actions (Cuisine, Coach)
+
+function Panneau:message(t, erreur)
+    UIManager:show(InfoMessage:new{ text = (erreur and "Erreur : " or "") .. texte(t), timeout = erreur and 5 or 2 })
+end
+
+-- Envoie une action ; en cas de succès, ferme les écrans ouverts et recharge le panneau
+function Panneau:envoyer(chemin, corps, ecrans)
+    local info = InfoMessage:new{ text = "Envoi…" }
+    UIManager:show(info)
+    UIManager:forceRePaint()
+    local res, err = self.client:post(chemin, corps, 60)
+    UIManager:close(info)
+    if not res then
+        self:message(err, true)
+        return nil
+    end
+    for _, e in ipairs(ecrans or {}) do
+        if e then UIManager:close(e) end
+    end
+    self:charger(true)
+    UIManager:setDirty(self, "full")
+    self:message(res.message or "C'est noté")
+    return res
+end
+
+function Panneau:confirmer(question, libelle, callback)
+    UIManager:show(ConfirmBox:new{
+        text = question,
+        ok_text = libelle or "Oui",
+        cancel_text = "Annuler",
+        ok_callback = callback,
+    })
+end
+
+function Panneau:executer_action(id, cible, vue, chemin_vue, params_vue)
+    local repas = cible.repas
+    if id == "valider" then
+        local data, err = self.client:get("/api/repas/validation", { repas = repas }, 30)
+        if not data then return self:message(err, true) end
+        local ecran
+        ecran = Ecrans.EcranValidation:new{
+            donnees = data,
+            on_valider = function(lignes, note)
+                self:envoyer("/api/repas/valider", { repas = repas, statut = "fait", lignes = lignes,
+                    note = (note ~= "" and note or nil) }, { ecran, vue })
+            end,
+        }
+        UIManager:show(ecran)
+    elseif id == "sauter" then
+        self:confirmer("Noter ce repas comme « pas fait » ?", "Pas fait", function()
+            self:envoyer("/api/repas/valider", { repas = repas, statut = "saute" }, { vue })
+        end)
+    elseif id == "annuler_repas" then
+        self:confirmer("Annuler la validation de ce repas ? Le stock sera rétabli.", "Annuler la validation", function()
+            self:envoyer("/api/repas/annuler", { repas = repas }, { vue })
+        end)
+    elseif id == "deplacer" then
+        local ecran
+        ecran = Ecrans.EcranDeplacer:new{
+            cible = cible,
+            on_choisir = function(nouvelle)
+                local simu, err = self.client:post("/api/seance/deplacer",
+                    { a = cible.a, id = cible.id, date = nouvelle, simuler = true }, 60)
+                if not simu then return self:message(err, true) end
+                local corps = { a = cible.a, id = cible.id, date = nouvelle }
+                local alertes = liste(simu.alertes)
+                if #alertes > 0 then
+                    self:confirmer("Attention : " .. table.concat(alertes, " ; ") .. "\n\nDéplacer quand même ?",
+                        "Déplacer", function() self:envoyer("/api/seance/deplacer", corps, { ecran, vue }) end)
+                else
+                    self:envoyer("/api/seance/deplacer", corps, { ecran, vue })
+                end
+            end,
+        }
+        UIManager:show(ecran)
+    elseif id == "maintenant" then
+        self:confirmer("Faire cette séance aujourd'hui ? Elle sera envoyée à la montre.", "Aujourd'hui", function()
+            self:envoyer("/api/seance/maintenant", { a = cible.a, id = cible.id }, { vue })
+        end)
+    elseif id == "fait" or id == "pas_fait" then
+        self:envoyer("/api/seance/fait", { a = cible.a, id = cible.id, fait = id == "fait" }, { vue })
+    elseif id == "ressenti" then
+        local ecran
+        ecran = Ecrans.EcranRessenti:new{
+            cible = cible,
+            on_enregistrer = function(rpe, douleurs, note)
+                self:envoyer("/api/seance/ressenti", { a = cible.a, id = cible.id, activity_id = cible.activity_id,
+                    rpe = rpe, douleurs = douleurs, note = note }, { ecran, vue })
+            end,
+        }
+        UIManager:show(ecran)
+    end
 end
 
 function Panneau:onBalayer(_, ges)

@@ -10,6 +10,7 @@ import os
 import re
 import threading
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import date, datetime, timedelta
@@ -50,6 +51,7 @@ p { margin: 0.3em 0; }
 ul, ol { margin: 0.2em 0 0.2em 1.2em; padding: 0; }
 li { margin: 0.15em 0; }
 .meta { font-style: italic; }
+.parts { font-size: 0.85em; }
 table { border-collapse: collapse; }
 td, th { border: 1px solid black; padding: 0.15em 0.3em; }
 """
@@ -136,6 +138,35 @@ def http_json(url: str, entetes: dict[str, str] | None = None, timeout: float = 
             return json.loads(r.read())
     except Exception as exc:  # noqa: BLE001
         raise SourceError(f"{urllib.parse.urlsplit(url).netloc} : {exc}") from exc
+
+
+def http_post(url: str, corps: dict[str, Any], entetes: dict[str, str] | None = None, timeout: float = 30) -> Any:
+    req = urllib.request.Request(url, data=json.dumps(corps).encode(), method="POST",
+                                 headers={"Content-Type": "application/json", **(entetes or {})})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:  # noqa: S310 (add-ons internes configurés)
+            brut = r.read()
+    except urllib.error.HTTPError as exc:
+        try:
+            msg = json.loads(exc.read()).get("erreur")
+        except Exception:  # noqa: BLE001
+            msg = None
+        raise SourceError(msg or f"erreur {exc.code}") from exc
+    except Exception as exc:  # noqa: BLE001
+        raise SourceError(f"{urllib.parse.urlsplit(url).netloc} : {exc}") from exc
+    return json.loads(brut) if brut else {}
+
+
+DOULEURS_LIB = {"mollet": "Mollet", "achille": "Achille", "pied": "Pied", "genou": "Genou", "hanche": "Hanche",
+                "ischios": "Ischios", "dos": "Dos", "epaule": "Épaule", "autre": "Autre"}
+JOURS_COURTS = ("Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim")
+
+
+def arrondi_part(q: float, unite: str) -> float:
+    """Arrondi pratique d'une part individuelle (comme le panneau Cuisine)."""
+    if unite in ("g", "ml"):
+        return round(q / 5) * 5 if q >= 50 else round(q)
+    return round(q * 10) / 10
 
 
 # ---------------------------------------------------------------- vues
@@ -347,8 +378,22 @@ class Vues:
             return f"{nombre(round(q * 2) / 2, 1)} portion" + ("s" if q > 1 else "")
         return f"{nombre(q, 1)} {unite}"
 
+    @staticmethod
+    def _actions_repas(repas: dict[str, Any] | None) -> list[dict[str, Any]]:
+        if not repas:
+            return []
+        st = repas.get("statut")
+        if st == "prevu":
+            lib = "Batch fait" if repas.get("moment") == "batch" else ("Je prends ça" if repas.get("role") == "option" else "C'est fait")
+            return [{"id": "valider", "lib": lib, "icone": "check_circle", "principal": True},
+                    {"id": "sauter", "lib": "Pas fait", "icone": "close"}]
+        if st in ("fait", "saute", "remplace"):
+            return [{"id": "annuler_repas", "lib": "Annuler la validation", "icone": "undo"}]
+        return []
+
     def recette(self, plan_id: int | None, d: date | None, rid: str | None) -> dict[str, Any]:
         repas = None
+        noms: dict[str, str] = {}
         if plan_id is not None:
             j = self._cuisine(f"/api/jour?d={(d or aujourdhui()).isoformat()}")
             repas = next((r for r in j.get("repas") or [] if r.get("id") == plan_id), None)
@@ -356,43 +401,100 @@ class Vues:
                 raise SourceError("repas introuvable")
             rid = repas.get("recette_id")
             noms = {p["id"]: p["nom"] for p in j.get("profils") or []}
-        else:
-            noms = {}
+        nom = lambda k: noms.get(k, k.capitalize())  # noqa: E731
+        portions = (repas or {}).get("portions") or {}
+        statut = STATUTS_REPAS.get((repas or {}).get("statut"), "")
+        extra = {"actions": self._actions_repas(repas),
+                 "cible": {"repas": plan_id, "d": (repas or {}).get("date") or ""}}
         corps = []
         if not rid:
             titre = (repas or {}).get("titre") or "Repas"
             corps.append(f"<h1>{esc(titre)}</h1>")
-            if repas and repas.get("portions"):
-                corps.append(f"<p class='meta'>{esc(self._portions(repas['portions'], noms))}</p>")
+            if portions:
+                corps.append(f"<p class='meta'>{esc(self._portions(portions, noms))}{(' · ' + esc(statut)) if statut else ''}</p>")
             if repas and repas.get("note"):
                 corps.append(f"<h2>Note</h2><p>{esc(repas['note'])}</p>")
             if repas and repas.get("plat_id"):
                 corps.append("<p>Plat préparé lors du batch cooking : à réchauffer.</p>")
-            return page_html(titre, "\n".join(corps))
+            return {**page_html(titre, "\n".join(corps)), **extra}
 
         r = self._cuisine(f"/api/recette/{urllib.parse.quote(rid)}", ttl=300)
-        total = sum((repas or {}).get("portions", {}).values()) if repas else 1.0
-        total = total or 1.0
+        # répartition par personne seulement si le repas est partagé (pas pour un batch en portions totales)
+        pers = [(k, float(v)) for k, v in portions.items() if k != "total" and v] if "total" not in portions else []
+        partage = len(pers) > 1
+        total = sum(v for _, v in pers) if partage else float(portions.get("total") or (pers[0][1] if pers else 1) or 1)
         meta = []
         if r.get("temps_min"):
             meta.append(f"{r['temps_min']} min")
-        if repas and repas.get("portions"):
-            meta.append(self._portions(repas["portions"], noms))
+        if partage:
+            meta.append(f"{nombre(total, 2)} portions (" + " · ".join(f"{nom(k)} ×{nombre(v, 2)}" for k, v in pers) + ")")
         else:
-            meta.append("pour 1 portion")
+            meta.append(f"pour {nombre(total, 2)} portion" + ("s" if total > 1 else ""))
+        if statut:
+            meta.append(statut)
+        n = r.get("nutrition_portion") or {}
         corps.append(f"<h1>{esc(r.get('titre'))}</h1>")
         corps.append(f"<p class='meta'>{esc(' · '.join(meta))}</p>")
+        if n.get("kcal"):
+            corps.append(f"<p class='meta'>Par portion : {n['kcal']} kcal · P {n.get('prot', 0)} g · G {n.get('gluc', 0)} g · L {n.get('lip', 0)} g</p>")
         if repas and repas.get("note"):
             corps.append(f"<p><b>Note du jour :</b> {esc(repas['note'])}</p>")
-        corps.append(f"<h2>Ingrédients{' (total ×' + nombre(total, 2) + ')' if total != 1 else ''}</h2><ul>")
+        corps.append("<h2>Ingrédients</h2><ul>")
         for i in r.get("ingredients_details") or []:
-            corps.append(f"<li>{esc(i.get('nom'))} : <b>{esc(self._quantite(float(i.get('quantite') or 0) * total, i.get('unite') or 'g'))}</b></li>")
+            u, q = i.get("unite") or "g", float(i.get("quantite") or 0)
+            note = f" <i>({esc(i['note'])})</i>" if i.get("note") else ""
+            if partage:
+                parts = [(k, arrondi_part(q * v, u)) for k, v in pers]
+                tot = sum(x for _, x in parts)
+                detail = " · ".join(f"{nom(k)} {nombre(x, 1) if u == 'pc' else self._quantite(x, u)}" for k, x in parts)
+                corps.append(f"<li>{esc(i.get('nom'))}{note} : <b>{esc(self._quantite(tot, u))}</b>"
+                             f"<br/><span class='parts'>{esc(detail)}</span></li>")
+            else:
+                corps.append(f"<li>{esc(i.get('nom'))}{note} : <b>{esc(self._quantite(q * total, u))}</b></li>")
         corps.append("</ul>")
         if r.get("html"):
             corps.append(f"<h2>Étapes</h2>{r['html']}")
         if r.get("notes_html") and (r.get("notes") or "").strip():
             corps.append(f"<h2>Notes</h2>{r['notes_html']}")
-        return page_html(r.get("titre") or "Recette", "\n".join(corps))
+        return {**page_html(r.get("titre") or "Recette", "\n".join(corps)), **extra}
+
+    # ---------- Actions Cuisine
+
+    @staticmethod
+    def _pas(q: float, unite: str) -> float:
+        if unite in ("g", "ml"):
+            return 10 if q >= 100 else 5
+        return 0.5
+
+    def validation(self, plan_id: int) -> dict[str, Any]:
+        v = http_json(f"{self.cuisine}/api/repas/{plan_id}/validation")
+        lignes = []
+        for l in v.get("lignes") or []:
+            u, q = l.get("unite") or "g", float(l.get("quantite") or 0)
+            lignes.append({
+                "produit": l.get("produit"), "nom": l.get("nom"), "unite": u, "sens": l.get("sens"),
+                "quantite": round(q, 1), "pas": self._pas(q, u),
+                "info": "produit, ajouté au stock" if l.get("sens") == "produit"
+                        else f"en stock : {self._quantite(float(l.get('stock') or 0), u)}",
+            })
+        rep = v.get("repas") or {}
+        return {"titre": rep.get("titre") or "Repas", "statut": rep.get("statut"), "lignes": lignes}
+
+    def valider(self, plan_id: int, statut: str, lignes: list[dict[str, Any]] | None, note: str | None) -> dict[str, Any]:
+        corps: dict[str, Any] = {"statut": statut}
+        if lignes is not None:
+            corps["lignes"] = [{"produit": l.get("produit"), "sens": l.get("sens"), "quantite": float(l.get("quantite") or 0)}
+                               for l in lignes if isinstance(l, dict)]
+        if note:
+            corps["note"] = str(note)[:300]
+        http_post(f"{self.cuisine}/api/repas/{plan_id}/valider", corps)
+        self.cache.vider()
+        return {"ok": True, "message": "Stock mis à jour" if statut == "fait" else "Noté"}
+
+    def annuler_repas(self, plan_id: int) -> dict[str, Any]:
+        http_post(f"{self.cuisine}/api/repas/{plan_id}/annuler", {})
+        self.cache.vider()
+        return {"ok": True, "message": "Validation annulée, stock rétabli"}
 
     # ---------- Séances
 
@@ -517,7 +619,66 @@ class Vues:
         if fiche.get("html"):
             # les schémas (SVG en data:) ne passent pas bien sur l'e-ink : on les retire
             corps.append(f"<h2>Déroulé</h2>{re.sub(r'<img[^>]*>', '', fiche['html'])}")
-        note = (s.get("ressenti") or {}).get("note")
-        if note:
-            corps.append(f"<h2>Ressenti</h2><p>{esc(note).replace(chr(10), '<br/>')}</p>")
-        return page_html(v["titre"], "\n".join(corps))
+        res = s.get("ressenti") or {}
+        if res.get("rpe") or res.get("douleurs") or res.get("note"):
+            bouts = [f"Effort {res['rpe']}/10" if res.get("rpe") else "",
+                     ("Douleurs : " + ", ".join(DOULEURS_LIB.get(x, x) for x in res.get("douleurs") or [])) if res.get("douleurs") else ""]
+            corps.append(f"<h2>Ressenti</h2><p>{esc(' · '.join(b for b in bouts if b))}</p>")
+            if res.get("note"):
+                corps.append(f"<p>{esc(res['note']).replace(chr(10), '<br/>')}</p>")
+
+        realisee = s.get("statut") == "realisee"
+        actions = []
+        if not realisee:
+            actions.append({"id": "deplacer", "lib": "Déplacer", "icone": "calendar_week"})
+            if s.get("date") != aujourdhui().isoformat():
+                actions.append({"id": "maintenant", "lib": "Aujourd'hui", "icone": "run"})
+            actions.append({"id": "fait", "lib": "Marquer faite", "icone": "check_circle", "principal": True})
+        else:
+            actions.append({"id": "ressenti", "lib": "Mon ressenti", "icone": "pencil", "principal": True})
+            if s.get("fait_manuel"):
+                actions.append({"id": "pas_fait", "lib": "Pas faite", "icone": "undo"})
+        lundi = d - timedelta(days=d.weekday())
+        semaine = []
+        for i in range(7):
+            jd = lundi + timedelta(days=i)
+            semaine.append({"date": jd.isoformat(), "lib": f"{JOURS_COURTS[i]} {jd.day}",
+                            "actuel": jd.isoformat() == s.get("date"), "aujourdhui": jd == aujourdhui()})
+        cible = {"a": athlete, "id": sid, "d": s.get("date") or d.isoformat(), "titre": v["titre"],
+                 "activity_id": str((s.get("activite") or {}).get("activity_id") or ""),
+                 "semaine": semaine,
+                 "ressenti": {"rpe": res.get("rpe") or 0, "douleurs": res.get("douleurs") or [], "note": res.get("note") or ""},
+                 "douleurs": [{"id": k, "lib": l} for k, l in DOULEURS_LIB.items()]}
+        return {**page_html(v["titre"], "\n".join(corps)), "actions": actions, "cible": cible}
+
+    # ---------- Actions Coach
+
+    def _coach_post(self, athlete: str, chemin: str, corps: dict[str, Any]) -> Any:
+        if athlete not in {a["id"] for a in self._athletes()}:
+            raise SourceError("athlète inconnu")
+        res = http_post(self.coach + chemin, corps, {"X-Athlete": athlete}, timeout=60)
+        if not corps.get("simuler"):
+            self.cache.vider()
+        return res
+
+    def deplacer(self, athlete: str, sid: str, nouvelle: str, simuler: bool) -> dict[str, Any]:
+        res = self._coach_post(athlete, f"/api/seance/{urllib.parse.quote(sid)}/deplacer",
+                               {"date": nouvelle, "simuler": simuler})
+        alertes = [a.get("texte", "") for a in res.get("alertes") or [] if isinstance(a, dict)]
+        msg = "Séance déplacée" + (f" (aussi pour {', '.join(res['binome'])})" if res.get("binome") else "")
+        return {"ok": True, "simulation": bool(res.get("simulation")), "alertes": alertes, "message": msg}
+
+    def maintenant_seance(self, athlete: str, sid: str) -> dict[str, Any]:
+        res = self._coach_post(athlete, f"/api/seance/{urllib.parse.quote(sid)}/maintenant", {})
+        return {"ok": True, "message": "Séance prévue aujourd'hui et envoyée à la montre"
+                + (f" (aussi pour {', '.join(res['binome'])})" if res.get("binome") else "")}
+
+    def fait_seance(self, athlete: str, sid: str, fait: bool) -> dict[str, Any]:
+        self._coach_post(athlete, f"/api/seance/{urllib.parse.quote(sid)}/fait", {"fait": fait})
+        return {"ok": True, "message": "Séance marquée faite" if fait else "Séance remise à faire"}
+
+    def ressenti(self, athlete: str, sid: str, activity_id: str, rpe: int | None, douleurs: list[str],
+                 note: str) -> dict[str, Any]:
+        corps = {"seance_id": sid, "activity_id": activity_id or None, "rpe": rpe, "douleurs": douleurs, "note": note}
+        self._coach_post(athlete, "/api/ressenti", corps)
+        return {"ok": True, "message": "Ressenti enregistré"}

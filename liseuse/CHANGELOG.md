@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.0
+- Recettes : quantités réparties par personne (comme le panneau Cuisine) et valeurs nutritionnelles.
+- Repas : depuis la recette, « C'est fait » (quantités utilisées ajustables avec − / +, note au clavier),
+  « Pas fait » et annulation d'une validation.
+- Séances : déplacer dans la semaine (avec les alertes d'enchaînement), faire aujourd'hui (envoi à la
+  montre), marquer faite ou non, saisir le ressenti (effort, douleurs, note).
+
 ## 0.2.0
 - Nouvelle interface du panneau : bandeau noir avec heure et météo, thermostat compact (température,
   consigne −/+, modes en pastilles), appareils en tuiles avec icônes (allumé = tuile noire), onglets

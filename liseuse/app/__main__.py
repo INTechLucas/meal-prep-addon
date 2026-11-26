@@ -120,6 +120,43 @@ def build_app(vues: Vues, token: str) -> Starlette:
     def seance(r, _c):
         return vues.seance(q(r, "a") or "", q(r, "id") or "", lire_date(q(r, "d")))
 
+    def entier(c, k):
+        v = c.get(k)
+        if v in (None, ""):
+            raise ValueError(f"{k} manquant")
+        return int(v)
+
+    def validation(r, _c):
+        return vues.validation(int(q(r, "repas") or 0))
+
+    def valider(r, c):
+        statut = str(c.get("statut") or "fait")
+        if statut not in ("fait", "saute"):
+            raise ValueError("statut : fait ou saute")
+        lignes = c.get("lignes")
+        return vues.valider(entier(c, "repas"), statut, lignes if isinstance(lignes, list) else None,
+                            str(c.get("note") or "") or None)
+
+    def annuler(r, c):
+        return vues.annuler_repas(entier(c, "repas"))
+
+    def deplacer(r, c):
+        return vues.deplacer(str(c.get("a") or ""), str(c.get("id") or ""), str(c.get("date") or ""),
+                             bool(c.get("simuler")))
+
+    def maintenant_s(r, c):
+        return vues.maintenant_seance(str(c.get("a") or ""), str(c.get("id") or ""))
+
+    def fait_s(r, c):
+        return vues.fait_seance(str(c.get("a") or ""), str(c.get("id") or ""), bool(c.get("fait", True)))
+
+    def ressenti(r, c):
+        rpe = c.get("rpe")
+        rpe = int(rpe) if rpe not in (None, "", 0) else None
+        douleurs = [str(x) for x in c.get("douleurs") or []] if isinstance(c.get("douleurs"), list) else []
+        return vues.ressenti(str(c.get("a") or ""), str(c.get("id") or ""), str(c.get("activity_id") or ""),
+                             rpe, douleurs[:10], str(c.get("note") or "")[:600])
+
     def rafraichir(r, _c):
         vues.cache.vider()
         return {"ok": True}
@@ -149,6 +186,13 @@ def build_app(vues: Vues, token: str) -> Starlette:
         Route("/api/seances", api(seances)),
         Route("/api/seances/semaine", api(seances_semaine)),
         Route("/api/seance", api(seance)),
+        Route("/api/repas/validation", api(validation)),
+        Route("/api/repas/valider", api(valider), methods=["POST"]),
+        Route("/api/repas/annuler", api(annuler), methods=["POST"]),
+        Route("/api/seance/deplacer", api(deplacer), methods=["POST"]),
+        Route("/api/seance/maintenant", api(maintenant_s), methods=["POST"]),
+        Route("/api/seance/fait", api(fait_s), methods=["POST"]),
+        Route("/api/seance/ressenti", api(ressenti), methods=["POST"]),
         Route("/api/rafraichir", api(rafraichir), methods=["POST"]),
         Route("/plugin", api(plugin)),
         Route("/plugin/{nom:path}", plugin_fichier),
