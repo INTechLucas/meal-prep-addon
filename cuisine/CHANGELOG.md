@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.4
+- Fiches recettes : sous chaque ingrédient, la part de chaque personne selon les portions du repas
+  (ex. « Lucas 120 g · Anaïs 90 g »), le total à droite. Arrondi pratique : 5 g/ml au-delà de 50 g.
+- Outil MCP `supprimer_liste` : retire un article libre de la liste de courses.
+
 ## 0.2.3
 - Lecture des repas, du plan de la semaine et des recettes ouverte aux autres add-ons (réseau interne
   de Home Assistant, lecture seule), pour l'add-on « Liseuse ».

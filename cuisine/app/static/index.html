@@ -114,6 +114,7 @@
   .xrow input { width: 72px; } .qrow .u { width: 52px; color: var(--ink3); font-size: 12.5px; }
   .ing { list-style: none; padding: 0; margin: 0 0 8px; } .ing li { display: flex; justify-content: space-between; gap: 10px; padding: 5px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
   .ing li span:last-child { font-variant-numeric: tabular-nums; color: var(--ink2); white-space: nowrap; }
+  .ing .parts { display: block; color: var(--ink2); font-size: 12px; margin-top: 1px; font-variant-numeric: tabular-nums; }
   .ing li.ko span:first-child::after { content: " · manque"; color: var(--warn); font-size: 12px; font-weight: 600; }
   .pills { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 10px; } .pill { font-size: 12px; background: var(--chip); color: var(--ink2); padding: 3px 9px; border-radius: 999px; font-weight: 600; }
   .toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 9px 16px;
@@ -197,14 +198,34 @@ function personnesTxt(r) {
   if (p.total != null) return `${num(p.total, 0)} portions`;
   return Object.entries(p).map(([k, v]) => `${NOMS[k] || k}${v !== 1 ? " ×" + num(v, 2) : ""}`).join(" · ");
 }
-async function showRecette(rid, total, titre) {
+// Arrondi pratique d'une part individuelle : 5 g/ml au-delà de 50, 1 g/ml en dessous, 0,1 pièce.
+function arrondiPart(q, u) {
+  if (u === "g" || u === "ml") return q >= 50 ? Math.round(q / 5) * 5 : Math.round(q);
+  return Math.round(q * 10) / 10;
+}
+const nomProfil = k => NOMS[k] || (k.charAt(0).toUpperCase() + k.slice(1));
+async function showRecette(rid, total, titre, porJson) {
   try {
     const r = await api(`api/recette/${encodeURIComponent(rid)}`);
-    const mult = total || 1;
+    let por = {};
+    try { por = porJson ? JSON.parse(porJson) : {}; } catch { por = {}; }
+    // Répartition seulement quand le repas est partagé entre plusieurs personnes (pas pour un batch en portions totales).
+    const pers = por.total == null ? Object.entries(por).filter(([, v]) => v > 0) : [];
+    const split = pers.length > 1;
+    const mult = split ? pers.reduce((a, [, v]) => a + v, 0) : (total || 1);
     const n = r.nutrition_portion || {};
-    const ing = r.ingredients_details.map(i => `<li><span>${esc(i.nom)}${i.note ? ` <small>(${esc(i.note)})</small>` : ""}</span><span>${esc(qte(i.quantite * mult, i.unite))}</span></li>`).join("");
+    const ing = r.ingredients_details.map(i => {
+      const note = i.note ? ` <small>(${esc(i.note)})</small>` : "";
+      if (!split) return `<li><span>${esc(i.nom)}${note}</span><span>${esc(qte(i.quantite * mult, i.unite))}</span></li>`;
+      const parts = pers.map(([k, v]) => [k, arrondiPart(i.quantite * v, i.unite)]);
+      const tot = parts.reduce((a, [, q]) => a + q, 0);
+      const txt = parts.map(([k, q]) => `${nomProfil(k)} ${qte(q, i.unite)}`).join(" · ");
+      return `<li><span>${esc(i.nom)}${note}<small class="parts">${esc(txt)}</small></span><span>${esc(qte(tot, i.unite))}</span></li>`;
+    }).join("");
+    const portTxt = split ? `pour ${num(mult, 2)} portions (${pers.map(([k, v]) => `${nomProfil(k)} ×${num(v, 2)}`).join(" · ")})`
+      : (mult !== 1 ? `quantités pour ${num(mult, 2)} portions` : "pour 1 portion");
     openDlg(`<h3>${esc(titre || r.titre)}</h3>
-      <p class="hint">${r.temps_min ? `${r.temps_min} min · ` : ""}${mult !== 1 ? `quantités pour ${num(mult, 2)} portions` : "pour 1 portion"}</p>
+      <p class="hint">${r.temps_min ? `${r.temps_min} min · ` : ""}${esc(portTxt)}</p>
       <div class="pills">${n.kcal ? `<span class="pill">${n.kcal} kcal</span><span class="pill">P ${n.prot} g</span><span class="pill">G ${n.gluc} g</span><span class="pill">L ${n.lip} g</span>` : ""}${n.kcal ? `<span class="pill">par portion</span>` : ""}</div>
       <ul class="ing">${ing}</ul><div class="md">${r.html}</div>${r.notes ? `<div class="md">${r.notes_html}</div>` : ""}
       <div class="foot"><button class="btn" data-close>Fermer</button></div>`);
@@ -266,7 +287,7 @@ async function valider(id, titre) {
 
 function mealHTML(r, opts = {}) {
   const rid = r.recette_ref;
-  const tt = rid ? `<button data-rec="${esc(rid)}" data-tot="${portionsTotal(r)}" data-titre="${esc(r.titre)}">${esc(r.titre)}</button>` : esc(r.titre);
+  const tt = rid ? `<button data-rec="${esc(rid)}" data-tot="${portionsTotal(r)}" data-por="${esc(JSON.stringify(r.portions || {}))}" data-titre="${esc(r.titre)}">${esc(r.titre)}</button>` : esc(r.titre);
   const badge = r.statut === "fait" ? `<span class="badge fait">✓ Fait</span>` : (r.statut === "saute" ? `<span class="badge">Sauté</span>` :
     (r.statut === "ecarte" ? `<span class="badge">Pas choisi</span>` : (r.role === "option" ? `<span class="badge option">Option</span>` : "")));
   const sub = [r.moment === "batch" ? personnesTxt(r) : personnesTxt(r), r.temps_min ? `${r.temps_min} min` : "", r.note || ""].filter(Boolean).join(" · ");
@@ -283,7 +304,7 @@ function mealHTML(r, opts = {}) {
 }
 
 function bindMeals(root) {
-  root.querySelectorAll("[data-rec]").forEach(b => b.addEventListener("click", () => showRecette(b.dataset.rec, parseFloat(b.dataset.tot) || 1, b.dataset.titre)));
+  root.querySelectorAll("[data-rec]").forEach(b => b.addEventListener("click", () => showRecette(b.dataset.rec, parseFloat(b.dataset.tot) || 1, b.dataset.titre, b.dataset.por)));
   root.querySelectorAll("[data-fait]").forEach(b => b.addEventListener("click", () => valider(b.dataset.fait, b.dataset.titre)));
   root.querySelectorAll("[data-saute]").forEach(b => b.addEventListener("click", () => act(() => post(`api/repas/${b.dataset.saute}/valider`, { statut: "saute" }), "Noté")));
   root.querySelectorAll("[data-annule]").forEach(b => b.addEventListener("click", () => act(() => post(`api/repas/${b.dataset.annule}/annuler`), "Validation annulée, stock rétabli")));
@@ -347,6 +368,7 @@ async function horsPlan(dateIso) {
 async function renderSemaine() {
   const w = await api(`api/semaine${state.semaine ? "?d=" + state.semaine : ""}`);
   state.semaine = w.debut;
+  (w.profils || []).forEach(p => NOMS[p.id] = p.nom);
   const s = dd(w.debut), e = dd(w.fin);
   let h = `<div class="nav"><button id="prev">‹</button><div class="label"><b>${w.debut <= w.aujourd_hui && w.aujourd_hui <= w.fin ? "Cette semaine" : (w.debut > w.aujourd_hui ? "Semaine à venir" : "Semaine passée")}</b>
     <span>${s.getDate()} ${MOIS[s.getMonth()]} – ${e.getDate()} ${MOIS[e.getMonth()]}</span></div><button id="next">›</button></div>`;
@@ -358,7 +380,7 @@ async function renderSemaine() {
     h += `<div class="day${iso === w.aujourd_hui ? " today" : ""}"><h3>${esc(jourLong(iso).replace(/^./, c => c.toUpperCase()))}</h3>`;
     if (!rs.length) h += `<p class="empty" style="margin-left:2px">Rien de prévu</p>`;
     h += rs.map(r => `<div class="mini ${r.statut}"><span class="m" style="color:var(--${r.moment})">${MOMENTS[r.moment]}</span>
-      <span class="t">${r.recette_ref ? `<button data-rec="${esc(r.recette_ref)}" data-tot="${portionsTotal(r)}" data-titre="${esc(r.titre)}">${esc(r.titre)}</button>` : esc(r.titre)}
+      <span class="t">${r.recette_ref ? `<button data-rec="${esc(r.recette_ref)}" data-tot="${portionsTotal(r)}" data-por="${esc(JSON.stringify(r.portions || {}))}" data-titre="${esc(r.titre)}">${esc(r.titre)}</button>` : esc(r.titre)}
       ${r.role === "option" ? `<span class="opt"> · option</span>` : ""}${r.statut === "fait" ? " ✓" : ""}</span></div>`).join("");
     h += `</div>`;
   }

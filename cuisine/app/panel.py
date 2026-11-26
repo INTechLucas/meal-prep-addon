@@ -84,7 +84,7 @@ def build_panel(store: Store, options: dict[str, Any]) -> Starlette:
         fin = lundi + timedelta(days=6)
         return {"debut": lundi.isoformat(), "fin": fin.isoformat(), "repas": store.plan(lundi.isoformat(), fin.isoformat()),
                 "precedente": (lundi - timedelta(days=7)).isoformat(), "suivante": (lundi + timedelta(days=7)).isoformat(),
-                "aujourd_hui": date.today().isoformat()}
+                "aujourd_hui": date.today().isoformat(), "profils": store.profils()}
 
     def api_recette(request: Request, _b) -> dict[str, Any]:
         r = store.recette(request.path_params["rid"])

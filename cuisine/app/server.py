@@ -223,6 +223,12 @@ def build_server(store: Store, options: dict[str, Any]) -> MCPServer:
         return {"id": store.liste_ajouter(texte)}
 
     @tool(WRITE)
+    def supprimer_liste(id: int) -> dict[str, Any]:
+        """Supprime un article libre de la liste (id de get_liste_courses, champ libres)."""
+        store.liste_supprimer_libre(int(id))
+        return {"supprime": int(id)}
+
+    @tool(WRITE)
     def envoyer_liste_ha() -> dict[str, Any]:
         """Envoie la liste vers la liste « À faire » de Home Assistant configurée (option todo_entity),
         en remplaçant seulement les éléments ajoutés précédemment par l'add-on."""
