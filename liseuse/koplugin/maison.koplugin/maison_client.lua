@@ -62,7 +62,7 @@ function Client:brut(methode, chemin, corps_table, delai)
             method = methode,
             headers = entetes,
             source = source,
-            sink = ltn12.sink.table(morceaux),
+            sink = socketutil.table_sink(morceaux),
         })
     end)
     socketutil:reset_timeout()

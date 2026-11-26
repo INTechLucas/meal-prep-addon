@@ -44,7 +44,7 @@ local Maison = WidgetContainer:extend{
 function Maison:init()
     self.config = self:charger_config()
     self.ui.menu:registerToMainMenu(self)
-    if not session.demarre and self.config.demarrage_auto ~= false and not self.ui.document then
+    if not session.demarre and self.config.demarrage_auto ~= false then
         session.demarre = true
         UIManager:nextTick(function() self:ouvrir() end)
     end
@@ -76,6 +76,7 @@ function Maison:ouvrir()
     local function afficher()
         session.panneau = Panneau:new{
             client = self:client(),
+            garder_eveille = self.config.garder_eveille ~= false,
             on_close = function() session.panneau = nil end,
         }
         UIManager:show(session.panneau)
@@ -84,11 +85,11 @@ function Maison:ouvrir()
             UIManager:scheduleIn(3, function() self:verifier_mise_a_jour() end)
         end
     end
-    if NetworkMgr:isOnline() then
+    -- Réseau local uniquement : être connecté au Wi-Fi suffit (pas besoin d'accès Internet)
+    if NetworkMgr:isConnected() then
         afficher()
     else
-        -- active le Wi-Fi si besoin, puis affiche le panneau
-        NetworkMgr:runWhenOnline(afficher)
+        NetworkMgr:runWhenConnected(afficher)
     end
 end
 

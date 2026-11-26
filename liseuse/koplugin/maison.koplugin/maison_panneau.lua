@@ -20,6 +20,8 @@ local UIManager = require("ui/uimanager")
 local VerticalGroup = require("ui/widget/verticalgroup")
 local VerticalSpan = require("ui/widget/verticalspan")
 local Device = require("device")
+local NetworkMgr = require("ui/network/manager")
+local PluginShare = require("pluginshare")
 local Screen = Device.screen
 local logger = require("logger")
 
@@ -56,6 +58,7 @@ end
 local Panneau = InputContainer:extend{
     client = nil,
     on_close = nil,
+    garder_eveille = true,   -- suspend la mise en veille automatique tant que le panneau est affiché
     covers_fullscreen = true,
 }
 
@@ -83,7 +86,14 @@ end
 
 -- --------------------------------------------------------------- cycle de vie
 
+function Panneau:veille(empecher)
+    if self.garder_eveille then
+        PluginShare.pause_auto_suspend = empecher
+    end
+end
+
 function Panneau:onShow()
+    self:veille(true)
     UIManager:setDirty(self, "full")
     UIManager:scheduleIn(RAFRAICHISSEMENT_AUTO, self.auto)
     UIManager:nextTick(function() self:charger() end)
@@ -92,10 +102,12 @@ end
 
 function Panneau:onCloseWidget()
     UIManager:unschedule(self.auto)
+    self:veille(false)
 end
 
 function Panneau:fermer()
     UIManager:unschedule(self.auto)
+    self:veille(false)
     UIManager:close(self, "full")
     if self.on_close then self.on_close() end
 end
@@ -107,7 +119,9 @@ end
 
 -- Au réveil de la liseuse : données fraîches
 function Panneau:onResume()
-    UIManager:scheduleIn(2, function() self:charger(true) end)
+    UIManager:scheduleIn(2, function()
+        NetworkMgr:runWhenConnected(function() self:charger(true) end)
+    end)
 end
 
 -- --------------------------------------------------------------- données
