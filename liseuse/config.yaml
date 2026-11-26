@@ -1,7 +1,7 @@
 name: Liseuse (Kobo)
 version: "0.1.0"
 slug: liseuse
-description: Panneau de la liseuse Kobo (KOReader) : maison, repas, recettes et séances du jour
+description: "Panneau de la liseuse Kobo (KOReader) : maison, repas, recettes et séances du jour"
 url: https://github.com/INTechLucas/meal-prep-addon
 arch:
   - amd64
