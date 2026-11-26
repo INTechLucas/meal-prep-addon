@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.0
+- Nouvelle interface du panneau : bandeau noir avec heure et météo, thermostat compact (température,
+  consigne −/+, modes en pastilles), appareils en tuiles avec icônes (allumé = tuile noire), onglets
+  avec icônes, listes des repas et séances avec icônes et coches.
+- Noms courts et icônes des appareils calculés par l'add-on ; icônes SVG embarquées dans le plugin.
+- Le plugin vérifie aussi les mises à jour toutes les 6 heures.
+
 ## 0.1.1
 - Séances : titre et résumé repris des fiches du Coach ; schémas retirés du détail (illisibles sur l'e-ink).
 - Plugin : la liseuse ne se met pas en veille tant que le panneau est affiché ; connexion au réseau local

@@ -28,6 +28,20 @@ STATUTS_REPAS = {"fait": "Fait", "saute": "Sauté", "ecarte": "Écarté", "rempl
 STATUTS_SEANCE = {"realisee": "Réalisée", "manquee": "Manquée", "aujourdhui": "Aujourd'hui", "prevue": "Prévue"}
 SPORTS = {"course": "Course", "natation": "Natation", "renfo": "Renfo", "velo": "Vélo", "swimrun": "Swimrun",
           "trail": "Trail", "marche": "Marche", "mobilite": "Mobilité", "repos": "Repos"}
+METEO_ICONES = {
+    "clear-night": "weather_night", "cloudy": "weather_cloudy", "exceptional": "alert_circle_outline",
+    "fog": "weather_fog", "hail": "weather_hail", "lightning": "weather_lightning",
+    "lightning-rainy": "weather_lightning_rainy", "partlycloudy": "weather_partly_cloudy",
+    "pouring": "weather_pouring", "rainy": "weather_rainy", "snowy": "weather_snowy",
+    "snowy-rainy": "weather_snowy_rainy", "sunny": "weather_sunny", "windy": "weather_windy",
+    "windy-variant": "weather_windy",
+}
+MODES_ICONES = {"off": "power", "heat": "fire", "cool": "snowflake", "auto": "thermometer",
+                "heat_cool": "thermometer", "fan_only": "fan", "dry": "weather_fog"}
+MOMENTS_ICONES = {"petit_dej": "coffee", "dejeuner": "food", "collation": "food_apple", "diner": "silverware_fork_knife",
+                  "batch": "pot_steam"}
+SPORTS_ICONES = {"course": "run", "trail": "run", "natation": "swim", "velo": "bike", "renfo": "weight_lifter",
+                 "mobilite": "yoga", "marche": "walk", "swimrun": "swim"}
 CSS = """
 body { font-family: serif; line-height: 1.35; }
 h1 { font-size: 1.35em; margin: 0 0 0.3em 0; }
@@ -61,6 +75,10 @@ class SourceError(RuntimeError):
 def nombre(x: float, dec: int = 1) -> str:
     s = f"{x:.{dec}f}".rstrip("0").rstrip(".") if dec else f"{x:.0f}"
     return s.replace(".", ",")
+
+
+def degres(x: Any, dec: int = 1) -> str:
+    return f"{nombre(float(x), dec)}°" if isinstance(x, (int, float)) else "—"
 
 
 def jour_long(d: date) -> str:
@@ -145,6 +163,27 @@ class Vues:
     def _nom_appareil(nom: str) -> str:
         return re.sub(r"\bLumiere\b", "Lumière", nom)
 
+    @staticmethod
+    def _appareil_court(nom: str, piece: str) -> tuple[str, str]:
+        """Nom court (sans « Lumière », « Prise » ni la pièce) et icône d'un appareil."""
+        bas = nom.lower()
+        if "prise" in bas or "ampli" in bas:
+            icone = "power_socket_eu"
+        elif "ventil" in bas:
+            icone = "fan"
+        elif "tv" in bas or "télé" in bas:
+            icone = "television"
+        elif "lampadaire" in bas or " sol" in bas:
+            icone = "floor_lamp"
+        else:
+            icone = "lightbulb"
+        court = re.sub(r"(?i)\b(lumi[eè]re|lampe|prise|switch|light)\b", " ", nom)
+        if piece:
+            court = re.sub(r"(?i)\b" + re.escape(piece) + r"\b", " ", court)
+        court = " ".join(court.split())
+        court = court[:1].upper() + court[1:] if court else ("Prise" if icone == "power_socket_eu" else "Lumière")
+        return court, icone
+
     def maison(self) -> dict[str, Any]:
         mt = maintenant()
         out: dict[str, Any] = {"date": jour_long(mt.date()), "heure": mt.strftime("%H:%M")}
@@ -153,7 +192,9 @@ class Vues:
         if m:
             t = (m.get("attributes") or {}).get("temperature")
             out["meteo"] = {"lib": ha.METEO.get(m.get("state"), m.get("state")),
-                            "temp": f"{nombre(float(t))} °C" if isinstance(t, (int, float)) else ""}
+                            "temp": f"{nombre(float(t))} °C" if isinstance(t, (int, float)) else "",
+                            "temp_court": degres(t, 0) if isinstance(t, (int, float)) else "",
+                            "icone": METEO_ICONES.get(m.get("state"), "weather_cloudy")}
 
         temps = []
         for eid in self.o.get("temperatures") or []:
@@ -161,10 +202,11 @@ class Vues:
             if not e:
                 continue
             try:
-                v = f"{nombre(float(e['state']))} °C"
+                f = float(e["state"])
+                v, vc = f"{nombre(f)} °C", degres(f)
             except (TypeError, ValueError):
-                v = "—"
-            temps.append({"nom": self._nom_capteur(e), "valeur": v})
+                v = vc = "—"
+            temps.append({"nom": self._nom_capteur(e), "valeur": v, "valeur_court": vc})
         out["temperatures"] = temps
 
         th = ha.etat(self.o.get("thermostat") or "")
@@ -177,10 +219,15 @@ class Vues:
                 "actuelle": f"{nombre(float(cur))} °C" if isinstance(cur, (int, float)) else "—",
                 "consigne": cons,
                 "consigne_txt": f"{nombre(float(cons))} °C" if isinstance(cons, (int, float)) else "—",
+                "actuelle_court": degres(cur),
+                "consigne_court": degres(cons),
+                "piece": re.sub(r"(?i)^thermostat\s*", "", a.get("friendly_name") or "").capitalize(),
                 "mode": th.get("state"),
                 "mode_lib": ha.MODES.get(th.get("state"), th.get("state")),
                 "action_lib": ha.ACTIONS.get(a.get("hvac_action") or "", ""),
-                "modes": [{"id": x, "lib": ha.MODES.get(x, x)} for x in a.get("hvac_modes") or []],
+                "modes": [{"id": x, "lib": ha.MODES.get(x, x), "icone": MODES_ICONES.get(x, "thermometer")}
+                          for x in a.get("hvac_modes") or []],
+                "actif": a.get("hvac_action") in ("heating", "cooling"),
                 "min": a.get("min_temp", 7), "max": a.get("max_temp", 35),
                 "pas": a.get("target_temp_step") or 0.5,
             }
@@ -188,8 +235,10 @@ class Vues:
         pieces: dict[str, list[dict[str, Any]]] = {}
         for ap in self._appareils():
             etat = ap.get("etat")
+            nom = self._nom_appareil(ap.get("nom") or ap["id"])
+            court, icone = self._appareil_court(nom, ap.get("piece") or "")
             pieces.setdefault(ap.get("piece") or "Autres", []).append({
-                "id": ap["id"], "nom": self._nom_appareil(ap.get("nom") or ap["id"]),
+                "id": ap["id"], "nom": nom, "court": court, "icone": icone, "piece": ap.get("piece") or "",
                 "allume": etat == "on", "dispo": etat not in ("unavailable", "unknown"),
                 "etat_lib": {"on": "Allumé", "off": "Éteint"}.get(etat, "Indisponible"),
             })
@@ -257,7 +306,7 @@ class Vues:
                 "manque": ("Manque : " + ", ".join(manque)) if manque and r.get("statut") == "prevu" else "",
                 "recette": r.get("recette_id") or "",
             })
-        moments = [{"lib": libs[m], "repas": groupes[m]}
+        moments = [{"lib": libs[m], "icone": MOMENTS_ICONES.get(m, "silverware_fork_knife"), "repas": groupes[m]}
                    for m in sorted(groupes, key=lambda m: ORDRE_MOMENTS.index(m) if m in ORDRE_MOMENTS else 99)]
         return {"date": d.isoformat(), "titre": jour_long(d), "aujourdhui": d == aujourdhui(),
                 "precedent": (d - timedelta(days=1)).isoformat(), "suivant": (d + timedelta(days=1)).isoformat(),
@@ -275,6 +324,7 @@ class Vues:
             jours.append({"date": jd.isoformat(), "titre": jour_court(jd), "aujourdhui": jd == aujourdhui(),
                           "repas": [{"id": r["id"], "d": r["date"],
                                      "moment": r.get("moment_lib") or r["moment"],
+                                     "icone": MOMENTS_ICONES.get(r["moment"], "silverware_fork_knife"),
                                      "titre": r.get("titre") or r.get("libelle") or "Repas",
                                      "option": r.get("role") == "option",
                                      "statut_lib": STATUTS_REPAS.get(r.get("statut"), ""),
@@ -377,6 +427,7 @@ class Vues:
         return {
             "id": s["id"], "d": s.get("date"), "titre": s.get("titre") or fiche.get("titre") or s["id"],
             "sport": SPORTS.get(s.get("sport") or "", (s.get("sport") or "").capitalize()),
+            "icone": SPORTS_ICONES.get(s.get("sport") or "", "run"),
             "intensite": s.get("intensite") or "",
             "statut": s.get("statut"), "statut_lib": STATUTS_SEANCE.get(s.get("statut"), ""),
             "resume": s.get("resume") or fiche.get("resume") or "",
@@ -431,6 +482,7 @@ class Vues:
                 par_jour.setdefault(s.get("date") or "", []).append({
                     "athlete": at["id"], "nom": at["nom"], "id": s["id"], "d": s.get("date"),
                     "titre": s.get("titre") or (s.get("fiche") or {}).get("titre") or s["id"],
+                    "icone": SPORTS_ICONES.get(s.get("sport") or "", "run"),
                     "statut_lib": STATUTS_SEANCE.get(s.get("statut"), ""), "statut": s.get("statut")})
         jours = []
         for i in range(7):

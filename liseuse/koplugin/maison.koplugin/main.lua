@@ -11,6 +11,7 @@ local WidgetContainer = require("ui/widget/container/widgetcontainer")
 local logger = require("logger")
 
 local Client = require("maison_client")
+local UI = require("maison_carte")
 local Panneau = require("maison_panneau")
 
 -- État partagé par toutes les instances du plugin (une par écran KOReader) pendant la session
@@ -42,6 +43,7 @@ local Maison = WidgetContainer:extend{
 }
 
 function Maison:init()
+    UI.dossier = self.path
     self.config = self:charger_config()
     self.ui.menu:registerToMainMenu(self)
     if not session.demarre and self.config.demarrage_auto ~= false then
@@ -82,7 +84,12 @@ function Maison:ouvrir()
         UIManager:show(session.panneau)
         if not session.maj_verifiee then
             session.maj_verifiee = true
-            UIManager:scheduleIn(3, function() self:verifier_mise_a_jour() end)
+            -- vérifie la version au démarrage puis toutes les 6 heures
+            local function verifier()
+                self:verifier_mise_a_jour()
+                UIManager:scheduleIn(6 * 3600, verifier)
+            end
+            UIManager:scheduleIn(3, verifier)
         end
     end
     -- Réseau local uniquement : être connecté au Wi-Fi suffit (pas besoin d'accès Internet)

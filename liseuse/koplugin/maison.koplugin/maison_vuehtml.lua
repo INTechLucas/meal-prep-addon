@@ -20,7 +20,8 @@ local CenterContainer = require("ui/widget/container/centercontainer")
 local Device = require("device")
 local Screen = Device.screen
 
-local Carte = require("maison_carte")
+local UI = require("maison_carte")
+local Carte = UI.Carte
 
 local VueHtml = InputContainer:extend{
     titre = "",
@@ -36,9 +37,17 @@ function VueHtml:init()
     local marge = Screen:scaleBySize(10)
 
     local retour = Carte:new{
-        lignes = { { texte = "‹ Retour", taille = 20, gras = true } },
+        contenu = HorizontalGroup:new{
+            align = "center",
+            UI.icone("chevron_left", Screen:scaleBySize(26)),
+            UI.texte("Retour", 18, { gras = true }),
+        },
         largeur = Screen:scaleBySize(130),
+        hauteur_min = Screen:scaleBySize(48),
         centre = true,
+        bordure = Size.border.thin,
+        rayon = Screen:scaleBySize(24),
+        marge_interne = Screen:scaleBySize(4),
         callback = function() self:fermer() end,
     }
     local titre = TextWidget:new{
