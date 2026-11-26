@@ -373,12 +373,13 @@ class Vues:
         avec = s.get("commune")
         if isinstance(avec, list):  # le panneau Coach donne directement les partenaires
             partenaires = {s["id"]: avec}
+        fiche = s.get("fiche") if isinstance(s.get("fiche"), dict) else {}
         return {
-            "id": s["id"], "d": s.get("date"), "titre": s.get("titre") or s["id"],
+            "id": s["id"], "d": s.get("date"), "titre": s.get("titre") or fiche.get("titre") or s["id"],
             "sport": SPORTS.get(s.get("sport") or "", (s.get("sport") or "").capitalize()),
             "intensite": s.get("intensite") or "",
             "statut": s.get("statut"), "statut_lib": STATUTS_SEANCE.get(s.get("statut"), ""),
-            "resume": s.get("resume") or "",
+            "resume": s.get("resume") or fiche.get("resume") or "",
             "fc": f"FC ≤ {s['fc_cible']}" if s.get("fc_cible") else "",
             "commune": ("avec " + ", ".join(partenaires.get(s["id"], []))) if s.get("commune") and partenaires.get(s["id"]) else
                        ("en binôme" if s.get("commune") else ""),
@@ -429,7 +430,7 @@ class Vues:
             for s in (sem.get("planning") or {}).get("seances") or []:
                 par_jour.setdefault(s.get("date") or "", []).append({
                     "athlete": at["id"], "nom": at["nom"], "id": s["id"], "d": s.get("date"),
-                    "titre": s.get("titre") or s["id"],
+                    "titre": s.get("titre") or (s.get("fiche") or {}).get("titre") or s["id"],
                     "statut_lib": STATUTS_SEANCE.get(s.get("statut"), ""), "statut": s.get("statut")})
         jours = []
         for i in range(7):
@@ -462,7 +463,8 @@ class Vues:
             corps.append(f"<h2>Réalisé</h2><p>{esc(v['fait'])}{(' · ' + esc(v['rpe'])) if v['rpe'] else ''}</p>")
         fiche = s.get("fiche") or {}
         if fiche.get("html"):
-            corps.append(f"<h2>Déroulé</h2>{fiche['html']}")
+            # les schémas (SVG en data:) ne passent pas bien sur l'e-ink : on les retire
+            corps.append(f"<h2>Déroulé</h2>{re.sub(r'<img[^>]*>', '', fiche['html'])}")
         note = (s.get("ressenti") or {}).get("note")
         if note:
             corps.append(f"<h2>Ressenti</h2><p>{esc(note).replace(chr(10), '<br/>')}</p>")
