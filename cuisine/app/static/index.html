@@ -111,7 +111,17 @@
   .qrow .n { flex: 1; min-width: 0; font-size: 14px; } .qrow .n small { display: block; color: var(--ink3); font-size: 12px; }
   .qrow input { width: 90px; text-align: right; }
   .xrow select { font-size: 14px; padding: 8px; }
-  .xrow input { width: 72px; } .qrow .u { width: 52px; color: var(--ink3); font-size: 12.5px; }
+  .xrow input[type=number] { width: 72px; } .xrow .pick { flex: 1; min-width: 0; } .qrow .pick input { width: 100%; text-align: left; } .xrow .pick-res { right: auto; width: max(100%, min(300px, calc(100vw - 80px))); }
+  .pick { position: relative; }
+  .pick-res { position: absolute; left: 0; right: 0; top: calc(100% + 4px); z-index: 5; background: var(--card); border: 1px solid var(--line);
+    border-radius: 10px; box-shadow: 0 6px 18px rgba(0,0,0,.14); max-height: 240px; overflow-y: auto; }
+  .pick-res button { display: flex; justify-content: space-between; gap: 10px; width: 100%; text-align: left; border: 0; background: transparent;
+    color: var(--ink); font: inherit; font-size: 14px; padding: 9px 11px; cursor: pointer; border-bottom: 1px solid var(--line); }
+  .pick-res button:last-child { border-bottom: 0; } .pick-res button:hover, .pick-res button.on { background: var(--chip); }
+  .pick-res small { color: var(--ink3); font-size: 12px; white-space: nowrap; } .pick-none { padding: 9px 11px; color: var(--ink3); font-size: 13.5px; }
+  .seg { display: flex; gap: 3px; background: var(--chip); padding: 3px; border-radius: 10px; }
+  .seg button { flex: 1; border: 0; background: transparent; color: var(--ink2); font: inherit; font-weight: 600; font-size: 14px; padding: 7px 4px; border-radius: 8px; cursor: pointer; }
+  .seg button[aria-pressed="true"] { background: var(--card); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,.08); } .qrow .u { width: 52px; color: var(--ink3); font-size: 12.5px; }
   .ing { list-style: none; padding: 0; margin: 0 0 8px; } .ing li { display: flex; justify-content: space-between; gap: 10px; padding: 5px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
   .ing li span:last-child { font-variant-numeric: tabular-nums; color: var(--ink2); white-space: nowrap; }
   .ing .parts { display: block; color: var(--ink2); font-size: 12px; margin-top: 1px; font-variant-numeric: tabular-nums; }
@@ -239,28 +249,109 @@ async function catalogue() {
   if (!CATALOGUE) CATALOGUE = (await api("api/stock")).catalogue.filter(p => p.unite !== "portion");
   return CATALOGUE;
 }
+// Recherche de produit (insensible aux accents) : remplace les longues listes déroulantes.
+const norm = t => String(t ?? "").toLowerCase().replace(/œ/g, "oe").replace(/æ/g, "ae").normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+function pickerHTML(ph = "Rechercher un produit…") {
+  return `<div class="pick"><input class="field" type="search" placeholder="${esc(ph)}" autocomplete="off" enterkeyhint="done"><div class="pick-res" hidden></div></div>`;
+}
+// wrap : élément .pick ; onPick(produit | null) ; la valeur choisie est dans wrap.dataset.value
+function bindPicker(wrap, cat, onPick = () => {}) {
+  const inp = $("input", wrap), res = $(".pick-res", wrap);
+  wrap.dataset.value = "";
+  let liste = [], idx = 0;
+  const show = () => {
+    const mots = norm(inp.value).trim().split(/\s+/).filter(Boolean);
+    liste = cat.filter(p => mots.every(w => norm(p.nom).includes(w)));
+    const debut = mots[0] ? p => norm(p.nom).startsWith(mots[0]) || norm(p.nom).includes(" " + mots[0]) : () => false;
+    liste.sort((a, b) => (debut(b) - debut(a)) || ((b.stock > 0) - (a.stock > 0)) || a.nom.localeCompare(b.nom, "fr"));
+    liste = liste.slice(0, 30); idx = 0;
+    res.innerHTML = liste.map((p, i) => `<button type="button" data-i="${i}"${i === 0 && mots.length ? ` class="on"` : ""}><span>${esc(p.nom)}</span><small>${p.stock > 0 ? esc(qte(p.stock, p.unite)) : esc(p.unite)}</small></button>`).join("")
+      || `<div class="pick-none">Aucun produit trouvé</div>`;
+    res.hidden = false;
+  };
+  const choisir = p => { wrap.dataset.value = p.id; inp.value = p.nom; res.hidden = true; onPick(p); };
+  inp.addEventListener("input", () => { if (wrap.dataset.value) { wrap.dataset.value = ""; onPick(null); } show(); });
+  inp.addEventListener("focus", () => { if (!wrap.dataset.value) show(); });
+  inp.addEventListener("blur", () => setTimeout(() => { res.hidden = true; }, 150));
+  inp.addEventListener("keydown", e => {
+    if (e.key === "Enter") { e.preventDefault(); if (!res.hidden && liste[idx]) choisir(liste[idx]); }
+    else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault(); if (!liste.length) return;
+      idx = (idx + (e.key === "ArrowDown" ? 1 : liste.length - 1)) % liste.length;
+      res.querySelectorAll("button").forEach((b, i) => b.classList.toggle("on", i === idx));
+      res.querySelector(".on")?.scrollIntoView({ block: "nearest" });
+    }
+  });
+  res.addEventListener("mousedown", e => e.preventDefault());
+  res.addEventListener("click", e => { const b = e.target.closest("[data-i]"); if (b) choisir(liste[+b.dataset.i]); });
+}
+
+// Qui a mangé : « Les deux » (ou « Tout le monde ») + un bouton par personne.
+function personnesHTML(profils, actifs) {
+  const tous = !actifs || profils.every(p => actifs.includes(p.id));
+  const btn = (val, lib, on) => `<button type="button" data-pers="${esc(val)}" aria-pressed="${on}">${esc(lib)}</button>`;
+  return `<div class="seg" id="pers">${btn("tous", profils.length === 2 ? "Les deux" : "Tout le monde", tous)}${profils.map(p =>
+    btn(p.id, p.nom, !tous && actifs.length === 1 && actifs[0] === p.id)).join("")}</div>`;
+}
+function bindPersonnes(b) {
+  b.querySelectorAll("[data-pers]").forEach(x => x.addEventListener("click", e => {
+    e.preventDefault(); b.querySelectorAll("[data-pers]").forEach(y => y.setAttribute("aria-pressed", y === x));
+  }));
+}
+function personnesChoisies(b, profils) {
+  const v = b.querySelector('[data-pers][aria-pressed="true"]')?.dataset.pers || "tous";
+  return v === "tous" ? profils.map(p => p.id) : [v];
+}
+function profilsConnus() { return Object.entries(NOMS).map(([id, nom]) => ({ id, nom })); }
+
 function extrasHTML() {
   return `<div id="extras"></div><button class="btn ghost small" id="addx" style="padding-left:0;margin-top:4px">+ Ajouter un ingrédient</button>`;
 }
 function bindExtras(b, cat) {
-  const opts = cat.map(p => `<option value="${esc(p.id)}" data-u="${esc(p.unite)}">${esc(p.nom)}${p.stock > 0 ? ` (${esc(qte(p.stock, p.unite))})` : ""}</option>`).join("");
   $("#addx", b).addEventListener("click", e => {
     e.preventDefault();
     const row = document.createElement("div");
     row.className = "qrow xrow";
-    row.innerHTML = `<select class="field" style="flex:1;min-width:0"><option value="">— produit —</option>${opts}</select>
-      <input class="field" type="number" inputmode="decimal" min="0" step="any" placeholder="qté"><span class="u"></span>
+    row.innerHTML = `${pickerHTML()}<input class="field" type="number" inputmode="decimal" min="0" step="any" placeholder="qté"><span class="u"></span>
       <button class="btn ghost small" aria-label="Retirer">✕</button>`;
-    const sel = $("select", row), unit = $(".u", row);
-    sel.onchange = () => { unit.textContent = sel.selectedOptions[0]?.dataset.u || ""; $("input", row).focus(); };
-    $("button", row).onclick = ev => { ev.preventDefault(); row.remove(); };
+    const unit = $(".u", row), q = $('input[type="number"]', row);
+    bindPicker($(".pick", row), cat, p => { unit.textContent = p ? p.unite : ""; if (p) q.focus(); });
+    $(".btn", row).onclick = ev => { ev.preventDefault(); row.remove(); };
     $("#extras", b).appendChild(row);
-    sel.focus();
+    $(".pick input", row).focus();
   });
 }
 function extrasLignes(b) {
-  return [...b.querySelectorAll(".xrow")].map(r => ({ produit: $("select", r).value, sens: "utilise",
-    quantite: parseFloat(($("input", r).value || "0").replace(",", ".")) || 0 })).filter(l => l.produit && l.quantite > 0);
+  return [...b.querySelectorAll(".xrow")].map(r => ({ produit: $(".pick", r).dataset.value, sens: "utilise",
+    quantite: parseFloat(($('input[type="number"]', r).value || "0").replace(",", ".")) || 0 })).filter(l => l.produit && l.quantite > 0);
+}
+
+// Corriger un repas déjà fait : quantités, ingrédients ajoutés, qui l'a mangé.
+async function modifierFait(id) {
+  let m, cat;
+  try { [m, cat] = await Promise.all([api(`api/repas/${id}/modification`), catalogue()]); } catch (e) { return toast(e.message); }
+  m.profils.forEach(p => NOMS[p.id] = p.nom);
+  const r = m.repas, batch = r.moment === "batch";
+  const rows = m.lignes.map((l, i) => `<div class="qrow"><div class="n">${esc(l.nom)}<small>${l.sens === "produit" ? "produit → ajouté au stock" : `en stock : ${esc(qte(l.stock, l.unite))}`}</small></div>
+    <input class="field" type="number" inputmode="decimal" min="0" step="any" data-i="${i}" value="${Math.round(l.quantite * 10) / 10}"><span class="u">${esc(l.unite)}</span></div>`).join("");
+  openDlg(`<h3>${esc(r.titre)}</h3>
+    <p class="hint">Corrige ce qui a été enregistré : le stock est rectifié de la différence. Mets 0 pour retirer un ingrédient.</p>
+    ${batch ? "" : `<label class="lb">Qui l'a mangé ?</label>${personnesHTML(m.profils, Object.keys(r.portions || {}))}`}
+    <label class="lb">Ingrédients</label>${rows || `<p class="empty">Aucun ingrédient enregistré.</p>`}${extrasHTML()}
+    <label class="lb">Note (facultatif)</label><input class="field" id="mnote" maxlength="300" value="${esc(r.note || "")}">
+    <div class="foot"><button class="btn" data-close>Annuler</button><button class="btn primary" id="mok">Enregistrer</button></div>`, b => {
+    bindExtras(b, cat);
+    if (!batch) bindPersonnes(b);
+    $("#mok", b).addEventListener("click", async e => {
+      e.preventDefault();
+      const lignes = m.lignes.map((l, i) => ({ produit: l.produit, sens: l.sens, quantite: parseFloat(($(`[data-i="${i}"]`, b).value || "0").replace(",", ".")) || 0 }))
+        .concat(extrasLignes(b));
+      const note = $("#mnote", b).value.trim();
+      const body = { lignes, personnes: batch ? null : personnesChoisies(b, m.profils), note: note && note !== (r.note || "") ? note : null };
+      dlg.close(); CATALOGUE = null;
+      await act(() => post(`api/repas/${id}/modifier`, body), "Repas corrigé, stock mis à jour");
+    });
+  });
 }
 
 async function valider(id, titre) {
@@ -296,7 +387,9 @@ function mealHTML(r, opts = {}) {
   if (r.statut === "prevu") {
     actions = `<button class="btn ok small" data-fait="${r.id}" data-titre="${esc(r.titre)}">${r.moment === "batch" ? "Batch fait ✓" : (r.role === "option" ? "Je prends ça ✓" : "Fait ✓")}</button>
       ${opts.sauter !== false ? `<button class="btn small" data-saute="${r.id}">Pas fait</button>` : ""}`;
-  } else if (r.statut === "fait" || r.statut === "saute") {
+  } else if (r.statut === "fait") {
+    actions = `<button class="btn small" data-modif="${r.id}">Modifier</button><button class="btn ghost small" data-annule="${r.id}">Annuler</button>`;
+  } else if (r.statut === "saute") {
     actions = `<button class="btn ghost small" data-annule="${r.id}">Annuler</button>`;
   }
   return `<div class="meal ${r.statut}" style="--c:var(--${r.moment})"><div class="top"><div class="tt">${tt}</div>${badge}</div>
@@ -307,6 +400,7 @@ function bindMeals(root) {
   root.querySelectorAll("[data-rec]").forEach(b => b.addEventListener("click", () => showRecette(b.dataset.rec, parseFloat(b.dataset.tot) || 1, b.dataset.titre, b.dataset.por)));
   root.querySelectorAll("[data-fait]").forEach(b => b.addEventListener("click", () => valider(b.dataset.fait, b.dataset.titre)));
   root.querySelectorAll("[data-saute]").forEach(b => b.addEventListener("click", () => act(() => post(`api/repas/${b.dataset.saute}/valider`, { statut: "saute" }), "Noté")));
+  root.querySelectorAll("[data-modif]").forEach(b => b.addEventListener("click", () => modifierFait(b.dataset.modif)));
   root.querySelectorAll("[data-annule]").forEach(b => b.addEventListener("click", () => act(() => post(`api/repas/${b.dataset.annule}/annuler`), "Validation annulée, stock rétabli")));
 }
 
@@ -343,23 +437,25 @@ async function renderJour() {
   view.innerHTML = h;
   $("#prev").onclick = () => { state.jour = j.precedent; render(); };
   $("#next").onclick = () => { state.jour = j.suivant; render(); };
-  $("#horsplan").onclick = () => horsPlan(j.date);
+  $("#horsplan").onclick = () => horsPlan(j.date, j.profils);
   bindMeals(view);
 }
 
-async function horsPlan(dateIso) {
+async function horsPlan(dateIso, profils) {
+  profils = profils?.length ? profils : profilsConnus();
   let cat; try { cat = await catalogue(); } catch (e) { return toast(e.message); }
   openDlg(`<h3>Repas hors plan</h3><p class="hint">Restes, resto, plat improvisé… Ajoute les ingrédients utilisés pour mettre le stock à jour. Ce sera signalé à Claude pour ajuster la suite.</p>
     <label class="lb">Moment</label><select class="field" id="hm">${["petit_dej", "dejeuner", "collation", "diner"].map(m => `<option value="${m}">${MOMENTS[m]}</option>`).join("")}</select>
+    <label class="lb">Qui a mangé ?</label>${personnesHTML(profils, null)}
     <label class="lb">Qu'avez-vous mangé ?</label><input class="field" id="hl" maxlength="120" placeholder="ex. pâtes carbonara, resto japonais">
     <label class="lb">Ingrédients utilisés (facultatif)</label>${extrasHTML()}
     <div class="foot"><button class="btn" data-close>Annuler</button><button class="btn primary" id="hok">Enregistrer</button></div>`, b => {
-    bindExtras(b, cat);
+    bindExtras(b, cat); bindPersonnes(b);
     $("#hok", b).addEventListener("click", async e => {
       e.preventDefault(); const lib = $("#hl", b).value.trim(); if (!lib) return toast("Indique ce que vous avez mangé");
       const lignes = extrasLignes(b);
       dlg.close(); CATALOGUE = null;
-      await act(() => post("api/hors_plan", { date: dateIso, moment: $("#hm", b).value, libelle: lib, lignes }), "Enregistré");
+      await act(() => post("api/hors_plan", { date: dateIso, moment: $("#hm", b).value, libelle: lib, lignes, personnes: personnesChoisies(b, profils) }), "Enregistré");
     });
   });
 }
@@ -408,9 +504,9 @@ async function renderBatch() {
 async function renderStock() {
   const s = await api("api/stock");
   state.stockMeta = s; CATALOGUE = null;
-  const f = state.stockFiltre.toLowerCase();
-  const items = s.stock.filter(p => !f || p.nom.toLowerCase().includes(f));
-  let h = `<div class="inline" style="margin-bottom:12px"><input class="field" id="filtre" placeholder="Rechercher…" value="${esc(state.stockFiltre)}"><button class="btn primary" id="ajout">+ Ajouter</button></div>`;
+  const f = norm(state.stockFiltre).trim();
+  const items = s.stock.filter(p => !f || f.split(/\s+/).every(w => norm(p.nom).includes(w)));
+  let h = `<div class="inline" style="margin-bottom:12px"><input class="field" id="filtre" type="search" placeholder="Rechercher un produit…" value="${esc(state.stockFiltre)}"><button class="btn primary" id="ajout">+ Ajouter</button></div>`;
   const sous = s.stock.filter(p => p.sous_min);
   if (sous.length) h += `<div class="alerte">Basiques sous le minimum : ${esc(sous.map(p => p.nom).join(", "))} (ajoutés à la liste)</div>`;
   const par = {}; items.forEach(p => (par[p.rayon] ||= []).push(p));
@@ -498,18 +594,19 @@ function ficheProduit(p) {
 }
 
 function ajoutStock(s) {
-  const opts = s.catalogue.map(p => `<option value="${esc(p.id)}">${esc(p.nom)} (${esc(p.unite)})</option>`).join("");
   openDlg(`<h3>Ajouter au stock</h3>
-    <label class="lb">Produit</label><select class="field" id="ap"><option value="">— choisir —</option>${opts}</select>
+    <label class="lb">Produit</label><div id="ap">${pickerHTML()}</div>
     <p class="hint" style="margin-top:6px">Pas dans la liste ? <button class="btn ghost small" id="anew" style="padding:0 2px">+ Créer un nouveau produit</button> · <button class="btn ghost small" id="afiche" style="padding:0 2px" disabled>Modifier sa fiche</button></p>
     <label class="lb">Quantité ajoutée</label><input class="field" id="aq" type="number" inputmode="decimal" min="0" step="any">
     <div class="foot"><button class="btn" data-close>Annuler</button><button class="btn primary" id="aok">Ajouter</button></div>`, b => {
-    $("#ap", b).onchange = () => { const p = s.catalogue.find(x => x.id === $("#ap", b).value); $("#afiche", b).disabled = !p; if (p?.conditionnement) $("#aq", b).value = p.conditionnement; };
+    const pk = $("#ap .pick", b);
+    bindPicker(pk, s.catalogue, p => { $("#afiche", b).disabled = !p; if (p?.conditionnement) $("#aq", b).value = p.conditionnement; if (p) $("#aq", b).focus(); });
+    setTimeout(() => $("input", pk).focus(), 50);
     $("#anew", b).onclick = e => { e.preventDefault(); ficheProduit(null); };
-    $("#afiche", b).onclick = async e => { e.preventDefault(); try { ficheProduit(await api(`api/produit/${encodeURIComponent($("#ap", b).value)}`)); } catch (err) { toast(err.message); } };
+    $("#afiche", b).onclick = async e => { e.preventDefault(); try { ficheProduit(await api(`api/produit/${encodeURIComponent(pk.dataset.value)}`)); } catch (err) { toast(err.message); } };
     $("#aok", b).onclick = async e => {
       e.preventDefault();
-      const pid = $("#ap", b).value; const q = parseFloat(($("#aq", b).value || "").replace(",", "."));
+      const pid = pk.dataset.value; const q = parseFloat(($("#aq", b).value || "").replace(",", "."));
       if (!pid || !(q > 0)) return toast("Choisis un produit et une quantité");
       dlg.close();
       await act(() => post(`api/stock/${pid}`, { delta: q, motif: "ajout manuel" }), "Ajouté au stock");

@@ -634,6 +634,78 @@ class Store:
             self.evenement("repas_annule", {"plan_id": plan_id})
         return {"plan_id": plan_id, "statut": "prevu"}
 
+    def _mouvements_repas(self, plan_id: int) -> list[dict[str, Any]]:
+        """Mouvements de stock d'un repas fait, regroupés par produit (quantité positive + sens)."""
+        tot: dict[str, float] = {}
+        for m in self._q("SELECT produit_id, delta FROM mouvements WHERE plan_id=?", (plan_id,)):
+            tot[m["produit_id"]] = tot.get(m["produit_id"], 0) + m["delta"]
+        out = []
+        for pid, d in tot.items():
+            if abs(d) < 1e-9:
+                continue
+            p = self.produit(pid) or {"nom": pid, "unite": "g", "stock": 0}
+            out.append({"produit": pid, "nom": p["nom"], "unite": p["unite"], "quantite": round(abs(d), 3),
+                        "sens": "produit" if d > 0 else "utilise", "stock": p.get("stock") or 0})
+        return out
+
+    def preparer_modification(self, plan_id: int) -> dict[str, Any]:
+        """Ce qui a été enregistré pour un repas fait : ingrédients sortis (ou produits) et personnes."""
+        r = self._one("SELECT * FROM plan WHERE id=?", (plan_id,))
+        if not r:
+            raise CuisineError("repas introuvable")
+        row = self._plan_row(r)
+        if row["statut"] != "fait":
+            raise CuisineError("seul un repas fait peut être modifié")
+        return {"repas": {**row, "titre": self._titre(row)}, "lignes": self._mouvements_repas(plan_id),
+                "profils": [{"id": p["id"], "nom": p["nom"]} for p in self.profils()]}
+
+    def modifier_fait(self, plan_id: int, lignes: list[dict[str, Any]] | None = None, personnes: Any = None,
+                      note: str | None = None, source: str = "panneau") -> dict[str, Any]:
+        """Corrige un repas déjà fait : remplace ses mouvements de stock par `lignes` (quantités réellement
+        utilisées ou produites) et/ou change qui l'a mangé (`personnes` : liste d'ids de profils)."""
+        r = self._one("SELECT * FROM plan WHERE id=?", (plan_id,))
+        if not r:
+            raise CuisineError("repas introuvable")
+        row = self._plan_row(r)
+        if row["statut"] != "fait":
+            raise CuisineError("seul un repas fait peut être modifié")
+        if lignes is not None and not isinstance(lignes, list):
+            raise CuisineError("lignes invalides")
+        portions = None
+        if personnes is not None and row["moment"] != "batch":
+            if not isinstance(personnes, list) or not personnes:
+                raise CuisineError("personnes : au moins un profil")
+            nouv = self._portions(personnes)
+            anc = row["portions"]
+            # on garde les portions existantes des personnes déjà là (portions sur mesure), facteur pour les autres
+            portions = {k: (1.0 if row["plat_id"] else v) if k not in anc else anc[k] for k, v in nouv.items()}
+        avant = self._mouvements_repas(plan_id)
+        with self._tx():
+            appliques = None
+            if lignes is not None:
+                for m in self._q("SELECT produit_id, delta FROM mouvements WHERE plan_id=?", (plan_id,)):
+                    self._stock_delta(m["produit_id"], -m["delta"], "correction", None)
+                self.db.execute("DELETE FROM mouvements WHERE plan_id=?", (plan_id,))
+                appliques = []
+                for l in lignes:
+                    pid, q = l.get("produit"), float(l.get("quantite") or 0)
+                    sens = "produit" if l.get("sens") == "produit" else "utilise"
+                    if q <= 0 or not self.produit(pid or ""):
+                        continue
+                    self._stock_delta(pid, q if sens == "produit" else -q, f"repas {row['date']} {row['moment']} (corrigé)", plan_id)
+                    appliques.append({"produit": pid, "quantite": q, "sens": sens})
+            if portions is not None:
+                self.db.execute("UPDATE plan SET portions=? WHERE id=?", (json.dumps(portions), plan_id))
+            if note:
+                self.db.execute("UPDATE plan SET note=? WHERE id=?", (note, plan_id))
+            if source == "panneau":
+                self.evenement("repas_modifie", {
+                    "plan_id": plan_id, "date": row["date"], "moment": row["moment"], "titre": self._titre(row),
+                    "note": note, "avant": [{k: m[k] for k in ("produit", "quantite", "sens")} for m in avant],
+                    "stock": appliques, "personnes_avant": list(row["portions"]),
+                    "personnes": list(portions) if portions is not None else None})
+        return {"plan_id": plan_id, "stock": appliques, "portions": portions or row["portions"]}
+
     def supprimer_repas(self, ids: list[int]) -> int:
         with self._tx():
             n = 0
@@ -641,9 +713,13 @@ class Store:
                 n += self.db.execute("DELETE FROM plan WHERE id=? AND statut IN ('prevu','ecarte','saute')", (i,)).rowcount
         return n
 
-    def ajouter_hors_plan(self, date_: str, moment: str, libelle: str, lignes: list[dict[str, Any]] | None = None) -> dict:
-        """Repas mangé hors plan (restes, resto…) : enregistré comme fait, avec consommation éventuelle."""
-        res = self.publier_repas([{"date": date_, "moment": moment, "libelle": libelle, "personnes": "tous",
+    def ajouter_hors_plan(self, date_: str, moment: str, libelle: str, lignes: list[dict[str, Any]] | None = None,
+                          personnes: Any = None) -> dict:
+        """Repas mangé hors plan (restes, resto…) : enregistré comme fait, avec consommation éventuelle.
+        personnes : profils qui l'ont mangé (liste d'ids), tout le foyer par défaut."""
+        if isinstance(personnes, list) and not personnes:
+            raise CuisineError("choisir au moins une personne")
+        res = self.publier_repas([{"date": date_, "moment": moment, "libelle": libelle, "personnes": personnes or "tous",
                                    "role": "option"}], remplacer=False)
         pid = res["ids"][0]
         return self.valider(pid, "fait", lignes or [], note="hors plan")

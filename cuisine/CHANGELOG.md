@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.7
+- Repas hors plan : choix de qui l'a mangé (les deux, Anaïs ou Lucas).
+- Repas fait : bouton « Modifier » pour corriger après coup les quantités, ajouter ou retirer un
+  ingrédient et changer qui l'a mangé ; le stock est rectifié de la différence (événement `repas_modifie`).
+- Recherche de produit (sans accents, plusieurs mots) pour ajouter un ingrédient à un repas et dans
+  « + Ajouter » du stock ; le filtre du stock ignore aussi les accents.
+- Outil MCP `modifier_repas_fait`.
+
 ## 0.2.6
 - La liseuse peut aussi gérer la liste de courses (cocher, quantités, articles libres, rangement) et le
   stock (ajuster, ajouter un produit).

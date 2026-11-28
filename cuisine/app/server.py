@@ -209,6 +209,14 @@ def build_server(store: Store, options: dict[str, Any]) -> MCPServer:
         lignes : quantités réellement utilisées [{produit, quantite, sens: utilise|produit}]."""
         return store.valider(id, statut, lignes, note, source="claude")
 
+    @tool(WRITE)
+    def modifier_repas_fait(id: int, lignes: list[dict[str, Any]] | None = None, personnes: list[str] | None = None,
+                            note: str | None = None) -> dict[str, Any]:
+        """Corrige un repas déjà fait. lignes : remplace TOUTES les quantités sorties du stock pour ce repas
+        [{produit, quantite, sens: utilise|produit}] (le stock est rectifié) ; personnes : ids des profils
+        qui l'ont réellement mangé (ex. ["anais"]). Laisser un paramètre vide pour ne pas le changer."""
+        return store.modifier_fait(id, lignes, personnes, note, source="claude")
+
     # ------------------------------------------------------------------ courses
     @tool(RO)
     def get_liste_courses() -> dict[str, Any]:

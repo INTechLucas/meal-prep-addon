@@ -173,7 +173,15 @@ def build_panel(store: Store, options: dict[str, Any]) -> Starlette:
 
     def api_hors_plan(request: Request, b) -> dict[str, Any]:
         return store.ajouter_hors_plan(_date(b.get("date"), date.today()).isoformat(), str(b.get("moment") or ""),
-                                       str(b.get("libelle") or "").strip()[:120] or "Hors plan", b.get("lignes") or [])
+                                       str(b.get("libelle") or "").strip()[:120] or "Hors plan", b.get("lignes") or [],
+                                       b.get("personnes"))
+
+    def api_modification(request: Request, _b) -> dict[str, Any]:
+        return store.preparer_modification(int(request.path_params["pid"]))
+
+    def api_modifier_fait(request: Request, b) -> dict[str, Any]:
+        return store.modifier_fait(int(request.path_params["pid"]), b.get("lignes"), b.get("personnes"),
+                                   (str(b["note"])[:300] if b.get("note") else None))
 
     def api_courses(request: Request, _b) -> dict[str, Any]:
         return {**store.liste_courses(), "ha_configure": bool(options.get("todo_entity"))}
@@ -224,6 +232,8 @@ def build_panel(store: Store, options: dict[str, Any]) -> Starlette:
         Route("/api/repas/{pid:int}/validation", route(api_validation)),
         Route("/api/repas/{pid:int}/valider", route(api_valider), methods=["POST"]),
         Route("/api/repas/{pid:int}/annuler", route(api_annuler), methods=["POST"]),
+        Route("/api/repas/{pid:int}/modification", route(api_modification)),
+        Route("/api/repas/{pid:int}/modifier", route(api_modifier_fait), methods=["POST"]),
         Route("/api/hors_plan", route(api_hors_plan), methods=["POST"]),
         Route("/api/courses", route(api_courses)),
         Route("/api/courses/cocher", route(api_cocher), methods=["POST"]),
